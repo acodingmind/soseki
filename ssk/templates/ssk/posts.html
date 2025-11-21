@@ -1,0 +1,31 @@
+{% block extra_head %}
+{% endblock %}
+
+{% extends 'local/layout.html' %}
+
+{% block main %}
+    <div class="row">
+        <div class="col-md-8">
+
+            <div class="row">
+                <div class="col-md-8">
+                    <h5>Random Thoughts</h5>
+                </div>
+            </div>
+            <div style="overflow:scroll; height:600px;">
+                {% for my_tmp_post in posts %}
+                    <div class="row">
+                        <div class="col-md-12">
+                            <div><a href="{{ url_for('home.blog', note=my_tmp_post.note) }}">{{ my_tmp_post.title }}</a></div>
+                            <div class="small mt-1">{{ my_tmp_post.subtitle }}</div>
+                            <div class="text-muted small mt-2">[{{ my_tmp_post.labels }}] {{ my_tmp_post.created }}</div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+{% endblock %}

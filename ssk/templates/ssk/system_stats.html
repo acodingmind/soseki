@@ -1,0 +1,121 @@
+{% block extra_head %}
+{% endblock %}
+
+{% extends 'local/layout.html' %}
+
+{% block main %}
+    <h4>Stats</h4>
+    <div class="row">
+        <div class="col-12">
+            <div class="row">
+                    <ul class="nav nav-tabs" id="tab" role="tablist">
+                        <li class="nav-item">
+                            <a class="nav-link text-uppercase active" id="table-tab" data-toggle="tab" href="#table" role="tab" aria-controls="table" aria-selected="false">Page Counters</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-uppercase" id="db-tab" data-toggle="tab" href="#db" role="tab" aria-controls="db" aria-selected="false">Database Counters</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-uppercase" id="chart-tab" data-toggle="tab" href="#chart" role="tab" aria-controls="chart" aria-selected="false">Performance</a>
+                        </li>
+                    </ul>
+            </div>
+            <div class="tab-content" id="tab_content">
+            <div class="tab-pane fade" id="chart" role="tabpanel" aria-labelledby="chart-tab">
+                <div class="col-12">
+                    <canvas id="the_chart"></canvas>
+                </div>
+            </div>
+            <div class="tab-pane fade active show" id="table" role="tabpanel" aria-labelledby="table-tab">
+                <div class="row">
+                <div class="col-12 mt-2">
+                    <table>
+                    <caption>Page counters</caption>
+                <th style="background-color: #a2a4a6; color: #ffffff">
+                    {% for my_tmp_day in all_days %}
+                        <td style="border-right: #88b8ee 1px solid;">
+                            <pre style="font-size: xx-small; padding-left: 5px; padding-right: 5px;">{{ my_tmp_day }}</pre>
+                        </td>
+                    {% endfor %}
+                </th>
+                {% for my_tmp_page in all_pages %}
+                <tr style="border-bottom: #3b5998 1px dashed">
+                    <td style="border-right: #88b8ee 1px solid; padding-right: 10px;">
+                        {{ my_tmp_page }}
+                    </td>
+                    {% set outer_loop = loop %}
+                    {% for my_tmp_day in all_days %}
+                        <td style="border-right: #88b8ee 1px solid; padding-left: 5px; padding-right: 5px">
+                            {% set my_tmp_page = all_pages[outer_loop.index0] %}
+                            <small>{{ daily_stats[my_tmp_day][my_tmp_page] }}</small><br>
+                            {% if daily_perf[my_tmp_day][my_tmp_page] is not undefined %}
+                            <small class="text-muted">{{ daily_perf[my_tmp_day][my_tmp_page] }}ms</small>
+                            {% endif %}
+                        </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </table>
+                </div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="db" role="tabpanel" aria-labelledby="db-tab">
+                <div class="row">
+                <div class="col-12 mt-2">
+                    <table>
+                    <caption>Database Counters</caption>
+                    <th style="background-color: #a2a4a6; color: #ffffff">
+                        {% for my_tmp_day in db_days %}
+                            <td style="border-right: #88b8ee 1px solid;">
+                                <pre style="font-size: xx-small">{{ my_tmp_day }}</pre>
+                            </td>
+                        {% endfor %}
+                    </th>
+                    {% for my_tmp_table in db_tables %}
+                    <tr style="border-bottom: #3b5998 1px dashed">
+                        <td style="border-right: #88b8ee 1px solid; padding-right: 10px;">
+                            {{ my_tmp_table }}
+                        </td>
+                        {% set outer_loop = loop %}
+                        {% for my_tmp_day in db_days %}
+                            <td style="border-right: #88b8ee 1px solid; padding-left: 5px; padding-right: 5px">
+                                {% set my_tmp_table = db_tables[outer_loop.index0] %}
+                                <small>{{ db_stats[my_tmp_day][my_tmp_table] }}</small>
+                            </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </table>
+                </div>
+                </div>
+            </div>
+            </div>
+        </div>
+    </div>
+
+{% endblock %}
+
+{% block extra_js %}
+    <script src="{{ url_for('static', filename="vendor/chart.js/Chart.min.js") }}"></script>
+    <script>
+        var ctx = document.getElementById('the_chart').getContext('2d');
+        var the_chart = new Chart(ctx, {
+            type: 'line',
+            fill: 'true',
+            data: {{ system_perf | tojson }},
+                        options: {
+                            plugins: {
+                                tooltip: {
+                                    callbacks: {
+                                        label: function (context) {
+                                            var my_page = context.dataset.page[context.dataIndex]
+
+                                            return my_page
+                                        }
+                                    }
+                                }
+                            },
+                        }
+        });
+    </script>
+{% endblock %}

@@ -1,0 +1,127 @@
+{% block extra_head %}
+    <link rel="stylesheet" href="{{ url_for('static', filename="css/terminal.js/jquery.terminal.min.css") }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/term.css') }}">
+{% endblock %}
+
+{% extends 'local/layout.html' %}
+
+{% block main %}
+    <form id="progress" method="post" action="{{ url_for('home.tasks_action') }}">
+    <div class="card">
+        <div class="card-header">
+            <u>All Jobs</u>
+        </div>
+        <div  class="card-body">
+        <table class="table">
+            <tbody id="jobpanel">
+
+            </tbody>
+        </table>
+        </div>
+
+    </div>
+    </form>
+{% endblock %}
+
+{% block extra_js %}
+    <script>
+    function add_progress(a_task_id, a_name, a_details, a_status, a_progress) {
+        if( a_task_id !== "" ) {
+            var my_new_name = 'name_' + a_task_id;
+            if( $('#' + my_new_name).length ) {
+
+            }
+            else {
+                var my_new_status = 's_' + a_task_id;
+                var my_new_details = 'd_' + a_task_id;
+                var my_new_progress = 'p_' + a_task_id;
+                var my_new_prc = 'prc_' + a_task_id;
+                var my_new_stop = 'stop_' + a_task_id;
+                var my_new_delete = 'del_' + a_task_id;
+                var my_new_download = 'dw_' + a_task_id;
+
+                $('#jobpanel').prepend(
+                    "<tr>" +
+                        "<td>" +
+                            "<div id='" + my_new_name + "'></div>" +
+                            "<div id='" + my_new_details + "' style='font-size: xx-small'></div>" +
+                        "</td>" +
+                        "<td>" +
+                            "<div id='" + my_new_status + "'></div>" +
+                        "</td>" +
+                        "<td class='w-100'>" +
+                            "<div class='progress mt-2'>" +
+                                "<div id='" + my_new_progress + "' class='progress-bar' role='progressbar' aria-valuenow='70' aria-valuemin='0' aria-valuemax='100' style='width:0%'>" +
+                                    "<span id='" + my_new_prc + "' class='progress-bar-label'></span>" +
+                                "</div>" +
+                            "</div>" +
+                        "</td>" +
+                        "<td class='w-25'>" +
+                                    "<button form='progress' id='" + my_new_stop + "' type='submit' class='btn btn-icon w-25' value='" + a_task_id + "' name='stop'>" +
+                                        "<i class='fas fa-ban'></i>" +
+                                    "</button>" +
+                        "</td><td class='w-25'>" +
+                                    "<a id='" + my_new_download + "' href='" + "{{ url_for('home.task_log_download', a_tid = a_task_id) }}" + a_task_id + "'><i class='fas fa-download'></i></a>" +
+                        "</td><td class='w-25'>" +
+                                    "<button form='progress' id='" + my_new_delete + "' type='submit' class='btn btn-icon w-25' value='" + a_task_id + "' name='delete'>" +
+                                        "<i class='fas fa-trash'></i>" +
+                                    "</button>" +
+                         "</td>" +
+                    "</tr>");
+
+                $('#' + my_new_name).text(a_name);
+                $('#' + my_new_details).text("started:" + a_details);
+                $('#' + my_new_status).text(a_status);
+
+                if(a_status === "QUEUED") {
+                    $('#' + my_new_stop).css('visibility','visible')
+                    $('#' + my_new_delete).css('visibility','hidden')
+                    $('#' + my_new_download).css('visibility','hidden')
+                }
+                if(a_status === "IN PROGRESS") {
+                    $('#' + my_new_stop).css('visibility','visible')
+                    $('#' + my_new_delete).css('visibility','hidden')
+                    $('#' + my_new_download).css('visibility','hidden')
+                }
+                if(a_status === "STOPPED") {
+                    $('#' + my_new_stop).css('visibility','hidden')
+                    $('#' + my_new_delete).css('visibility','visible')
+                    $('#' + my_new_download).css('visibility','visible')
+                }
+                if(a_status === "DONE") {
+                    $('#' + my_new_stop).css('visibility','hidden')
+                    $('#' + my_new_delete).css('visibility','visible')
+                    $('#' + my_new_download).css('visibility','visible')
+                }
+
+                my_str = "{{ url_for('home.progress', a_thread_id = a_task_id) }}" + a_task_id
+
+                if(a_status === "IN PROGRESS") {
+                    var source = new EventSource(my_str);
+
+                    source.onmessage = function(event) {
+                        $('#' + my_new_progress).css('width', event.data+'%').attr('aria-valuenow', event.data);
+                        $('#' + my_new_prc).text(event.data+'%');
+
+                        if(event.data === "100") {
+                            $('#' + my_new_status).text("DONE");
+                            $('#' + my_new_stop).css('visibility','hidden')
+                            $('#' + my_new_download).css('visibility','visible')
+                            $('#' + my_new_delete).css('visibility','visible')
+                            source.close()
+                        }
+                    }
+                }
+
+                $('#' + my_new_progress).css('width', a_progress + '%').attr('aria-valuenow', a_progress);
+                $('#' + my_new_prc).text(a_progress + '%');
+            }
+        }
+    };
+
+    {% for my_tmp_task in tasks %}
+        add_progress( '{{ my_tmp_task.tid }}', '{{ my_tmp_task.name }}', '{{ my_tmp_task.details }}', '{{ my_tmp_task.status }}', {{ my_tmp_task.prog }} )
+    {% endfor %}
+
+    </script>
+{% endblock %}

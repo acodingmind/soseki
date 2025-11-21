@@ -1,0 +1,4 @@
+ssk:
+  EMPTY: 0
+  FONTAWESOME_KIT_ID:
+    string: ''  # Font Awesome Kit ID (set in app config)

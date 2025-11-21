@@ -1,0 +1,20 @@
+{% block extra_head %}
+{% endblock %}
+
+{% extends 'local/layout.html' %}
+
+{% block main %}
+    <h4>System Health Summary</h4>
+    <canvas id="the_status"></canvas>
+{% endblock %}
+
+{% block extra_js %}
+        <script src="{{ url_for('static', filename="vendor/chart.js/Chart.min.js") }}"></script>
+    <script>
+        var ctx = document.getElementById('the_status').getContext('2d');
+        var the_cumulative = new Chart(ctx, {
+            type: 'line',
+            data: {{ system_status | tojson }},
+        });
+    </script>
+{% endblock %}

@@ -1,0 +1,91 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Distribution / packaging
+build/
+ssk/blanco_app/
+ssk/blanco_bin/
+ssk/blanco_jup/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+soseki.egg-info
+
+# Project logs
+tests/log/
+tests/unittests/log/
+log/
+
+# Dependency check reports
+depcheck/
+# pyenv
+.python-version
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+.idea/
+.pytest_cache/
+
+# Project-specific
+tests/integration/instance/*.sqlite
+tests/integration/*.sqlite
+tests/unittests/instance/*.sqlite
+tests/unittests/*.sqlite
+data/
+*.sqlite
+*.xlsx
+
+# Python bytecode
+*.pyc
+*.pyo
+*.pyd
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Local files
+local/*

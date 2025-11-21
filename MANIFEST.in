@@ -1,0 +1,8 @@
+include README.md
+include LICENCE
+include requirements.txt
+recursive-include ssk/templates *
+recursive-include ssk/static *
+recursive-include ssk/blanco_app *
+recursive-include ssk/blanco_bin *
+recursive-include ssk/blanco_jup *

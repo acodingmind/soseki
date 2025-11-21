@@ -1,0 +1,9 @@
+{% extends 'local/layout.html' %}
+
+{% block main %}
+            <div class="text-center container">
+                <p class="lead text-gray-800 mb-5"><em class="fa-solid fa-bomb"></em> Sorry</p>
+                <p class="lead text-gray-800 mb-5">We couldn't find what you are looking for</p>
+                <p class="text-gray-500 mb-0">We logged this problem under {{ error_id }}</p>
+            </div>
+{% endblock %}

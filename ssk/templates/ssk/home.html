@@ -1,0 +1,34 @@
+
+{% extends 'local/layout.html' %}
+
+{% block main %}
+    <div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body">
+                Welcome to Soseki
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+            <div class="card shadow mb-4">
+            <div class="card-body">
+                <h6 class="card-title"><a href="#!" data-toggle="collapse" data-target="#subjectThree" aria-expanded="true" aria-controls="collapseThree" class="">Text 0</a></h6>
+                <div id="subjectThree" class="card-text show">
+               </div>
+                <hr>
+                <h6 class="card-title"><a href="#!" data-toggle="collapse" data-target="#subjectOne" aria-expanded="true" aria-controls="collapseOne" class="">Text 1</a></h6>
+                <div id="subjectOne" class="card-text collapse collapse">
+                </div>
+                <hr>
+                <h6 class="card-title"><a href="#!" data-toggle="collapse" data-target="#subjectTwo" aria-expanded="true" aria-controls="collapseTwo" class="">Text 2</a></h6>
+                <div id="subjectTwo" class="card-text collapse">
+                </div>
+            </div>
+        </div>
+    </div>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+{% endblock %}

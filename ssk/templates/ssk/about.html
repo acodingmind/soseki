@@ -1,0 +1,73 @@
+{% block extra_head %}
+{% endblock %}
+
+{% extends 'local/layout.html' %}
+
+{% block main %}
+    {% from "flask_user/_macros.html" import render_field, render_submit_field %}
+    <div class="row">
+        <div class="col-md-8">
+        <div>
+            <div class="mb-4">
+                <h6>{{ meta.APP_NAME }}</h6>
+            </div>
+            <div>
+                Soseki.io: generic functionality out of the box.
+            </div>
+        </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Contact Us</h5>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('home.post_contact') }}" method=post>
+                    <input type="hidden" name="source" value="{{ form.source }}">
+                    <div>
+                        {% if message is not none %}
+                            <div id="run_message" class="col-12 alert alert-success" role="alert">
+                                <small>{{ message }}</small>
+                            </div>
+                        {% endif %}
+                        {% set field = form.name %}
+                        <div class="form-group {% if field.errors %}has-error{% endif %}">
+                            {% if field.errors %}
+                                {% for e in field.errors %}
+                                    <p class="text-c-red">{{ e }}</p>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+                        {{ render_field(field, tabindex=110) }}
+                        <!-- email forms -->
+                        {% set field = form.email %}
+                        <div class="form-group {% if field.errors %}has-error{% endif %}">
+                        {% if field.errors %}
+                            {% for e in field.errors %}
+                                <p class="text-c-red">{{ e }}</p>
+                            {% endfor %}
+                        {% endif %}
+                        </div>
+                        {{ render_field(field, tabindex=120) }}
+
+                        {% set field = form.message %}
+                        {{ render_field(field, tabindex=130) }}
+
+                        {{ render_submit_field(form.submit, tabindex=180) }}
+                    </div>
+                    </form>
+                </div>
+            </div>
+            <div>
+                CODING MINDS BV<br>
+                Chamber of Commerce/KvK: 71320547<br>
+                Bank:                    NL40 KNAB 0257 2702 48<br>
+                BTW:                     NL858668397B01
+            </div>
+        </div>
+    </div>
+
+{% endblock %}
+
+{% block extra_js %}
+{% endblock %}
