@@ -4,7 +4,7 @@
 #
 
 
-SSK_VER = '0.8.7'
+SSK_VER = '0.8.8'
 SSK_NAME = 'soseki'
 SSK_MODEL_VERSION = 8
 
