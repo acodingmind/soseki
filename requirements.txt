@@ -23,5 +23,5 @@ psutil==7.2.1
 PyYAML==6.0.3
 textile==4.0.3
 MarkupSafe==3.0.3
-requests==2.32.5
+requests==2.33.1
 
