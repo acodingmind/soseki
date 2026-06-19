@@ -349,5 +349,18 @@ def test_post_contact_closed(app, client):
             mock_render.assert_called_once()
 
 
+def test_session_cookie_config(app):
+    """Test session cookie security config is applied"""
+    assert app.config.get('SESSION_COOKIE_HTTPONLY') is True
+    assert app.config.get('SESSION_COOKIE_SAMESITE') == 'Lax'
+
+
+def test_blog_path_traversal_rejected(app, client):
+    """Test the /ssk/blog/<note> route rejects path traversal"""
+    with app.app_context():
+        with patch('ssk.blueprints.home.WebGate.is_closed', return_value=False):
+            for traversal in ['../etc/passwd', 'foo/bar', '../../secret']:
+                response = client.get('/ssk/blog/{}'.format(traversal))
+                assert response.status_code in (400, 404)
 
 

@@ -3,7 +3,10 @@
 # SPDX-License-Identifier: MIT
 #
 
+import re
 from datetime import timedelta
+
+from sqlalchemy import text
 
 from .base_job import BaseJob
 from ... import get_db
@@ -35,11 +38,14 @@ class DbCleanupJob(BaseJob):
                         my_table_name = my_table_split[0]
                         my_engine = get_db().engine
 
-                    my_pre = "select count(*) from {} where created < '{}'".format(my_table_name, my_since)
-                    my_to_delete = my_engine.scalar(my_pre)
-                    my_sql = "delete from {} where created < '{}'".format(my_table_name, my_since)
-                    my_engine.execute(my_sql)
-                    my_check = my_engine.scalar(my_pre)
+                    if not re.match(r'^[\w.]+$', my_table_name):
+                        raise ValueError("invalid table name: {}".format(my_table_name))
+
+                    my_pre = text("select count(*) from {} where created < :since".format(my_table_name))
+                    my_to_delete = my_engine.scalar(my_pre.bindparams(since=my_since))
+                    my_sql = text("delete from {} where created < :since".format(my_table_name))
+                    my_engine.execute(my_sql.bindparams(since=my_since))
+                    my_check = my_engine.scalar(my_pre.bindparams(since=my_since))
                     if my_check == 0:
                         self.write_to_audit("OK", "cleanup table {} until {} ({} records deleted)".format(my_table_name, my_since.strftime("%D %H:%M:%S"), my_to_delete))
                 except Exception as problem:

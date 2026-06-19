@@ -13,6 +13,7 @@ from ssk.logic.jobs.base_job import BaseJob
 from ssk.logic.jobs.empty_job import EmptyJob
 from ssk.logic.jobs.health_check_job import HealthCheckJob
 from ssk.logic.jobs.db_cleanup_job import DbCleanupJob
+from ssk.logic.jobs.db_stat_job import DbStatJob
 from ssk.models.job import Job
 
 
@@ -923,3 +924,82 @@ class TestJobModel:
         job.task_id = 'test-task-123'
         
         assert repr(job) == "<Job 'test-task-123'>"
+
+
+class TestDbStatJob:
+    """Test suite for DbStatJob"""
+
+    def test_db_stat_job_work_success(self, app):
+        """Test DbStatJob work method with valid table metadata"""
+        with app.app_context():
+            with patch('ssk.logic.jobs.db_stat_job.get_db') as mock_get_db, \
+                 patch('ssk.models.db_stats.DBStats') as mock_db_stats_class:
+
+                mock_db_stats_class.return_value = Mock()
+
+                mock_metadata = Mock()
+                mock_metadata.tables.keys.return_value = ['job', 'audit']
+                mock_get_db.return_value.metadata = mock_metadata
+                mock_get_db.return_value.metadatas = {'logdb': mock_metadata}
+
+                mock_session = Mock()
+                mock_get_db.return_value.session = mock_session
+                mock_get_db.return_value.engines = {'logdb': Mock()}
+
+                mock_app = Mock()
+                mock_app._get_current_object.return_value = app
+
+                job = DbStatJob(mock_app, ['dbstats'])
+                job._app = app
+                job.write_to_log = Mock()
+
+                job.work()
+
+                assert mock_db_stats_class.call_count == 4  # job, audit (func) + job, audit (logdb)
+                assert mock_session.add.call_count == 4
+                assert mock_session.commit.call_count == 4
+
+    def test_db_stat_job_invalid_table_name(self, app):
+        """Test DbStatJob rejects invalid table names"""
+        with app.app_context():
+            with patch('ssk.logic.jobs.db_stat_job.get_db') as mock_get_db:
+
+                mock_metadata = Mock()
+                mock_metadata.tables.keys.return_value = ['bad table; drop']
+                mock_get_db.return_value.metadata = mock_metadata
+                mock_get_db.return_value.metadatas = {'logdb': Mock()}
+                mock_get_db.return_value.metadatas['logdb'].tables.keys.return_value = []
+
+                mock_app = Mock()
+                mock_app._get_current_object.return_value = app
+
+                job = DbStatJob(mock_app, ['dbstats'])
+                job._app = app
+                job.write_to_log = Mock()
+
+                job.work()
+
+                log_calls = [call[0][0] for call in job.write_to_log.call_args_list]
+                assert any("Failed" in call for call in log_calls)
+
+    def test_db_stat_job_exception(self, app):
+        """Test DbStatJob work method handles database exceptions"""
+        with app.app_context():
+            with patch('ssk.logic.jobs.db_stat_job.get_db') as mock_get_db:
+
+                mock_metadata = Mock()
+                mock_metadata.tables.keys.side_effect = Exception("DB error")
+                mock_get_db.return_value.metadata = mock_metadata
+                mock_get_db.return_value.metadatas = {'logdb': Mock()}
+
+                mock_app = Mock()
+                mock_app._get_current_object.return_value = app
+
+                job = DbStatJob(mock_app, ['dbstats'])
+                job._app = app
+                job.write_to_log = Mock()
+
+                job.work()
+
+                log_calls = [call[0][0] for call in job.write_to_log.call_args_list]
+                assert any("Failed" in call for call in log_calls)

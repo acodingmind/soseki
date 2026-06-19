@@ -34,3 +34,8 @@ class Config(object):
 
     ADMIN_NAME = "admin"
     USER_FREE_NAME = "user_free"
+
+    # session security
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    # SESSION_COOKIE_SECURE = True  # enable in production over HTTPS

@@ -6,7 +6,7 @@
 import csv
 import os
 
-from flask import (Blueprint, request, Response, send_file, current_app)
+from flask import (Blueprint, request, Response, send_file, current_app, abort)
 from flask import render_template
 
 from ssk.forms.contact_form import ContactForm
@@ -49,6 +49,8 @@ def blog(note):
     if WebGate.is_closed():
         return WebGate.render_closed()
 
+    if '..' in note or '/' in note:
+        abort(404)
     my_note_path = "local/notes/{}.html".format(note)
     try:
         my_form = ContactForm()
