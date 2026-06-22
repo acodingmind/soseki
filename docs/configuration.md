@@ -62,6 +62,10 @@ For development, you can place your config in `cfg/{profile}.yaml` in your proje
 - `MAIL_USE_TLS`: Use TLS
 - `MAIL_DEFAULT_SENDER`: Default sender email
 
+### Security
+
+- `IP_BLACKLIST`: List of IP addresses to block (JSON array). Requests from these IPs receive a 403 response before any processing.
+
 ### Scheduling
 
 - `SCHED_ON`: Enable background scheduler

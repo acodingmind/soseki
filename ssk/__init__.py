@@ -9,7 +9,7 @@ from logging.handlers import RotatingFileHandler
 import yaml
 from blinker import ANY
 from flask.cli import with_appcontext
-from flask import render_template, flash, request
+from flask import render_template, flash, request, abort
 from flask_login import current_user
 from apscheduler.schedulers.background import BackgroundScheduler
 from ssk.utils import set_const
@@ -167,6 +167,11 @@ def after_request(response):
 def every_request():
     if current_app.config["LOG_ALL_REQUESTS"]:
         g.start = time.time()
+
+    ip_blacklist = current_app.config.get("IP_BLACKLIST", [])
+    if request.remote_addr in ip_blacklist:
+        current_app.logger.warning("Blocked blacklisted IP: %s", request.remote_addr)
+        abort(403)
 
     my_user = current_user
 

@@ -39,3 +39,6 @@ class Config(object):
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
     # SESSION_COOKIE_SECURE = True  # enable in production over HTTPS
+
+    # ip blacklist
+    IP_BLACKLIST = []

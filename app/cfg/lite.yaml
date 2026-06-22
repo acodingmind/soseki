@@ -122,3 +122,6 @@ ssk:
 
   FONTAWESOME_KIT_ID:
     string: ''  # Leave empty to use Font Awesome Free CDN
+
+  IP_BLACKLIST:
+    json: []

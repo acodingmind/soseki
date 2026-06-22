@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-06-22
+
+### Added
+- IP blacklist configuration (`IP_BLACKLIST`) to block requests from specific IPs
+
 ## [0.9.0] - 2025-11-20
 
 ### Changed
