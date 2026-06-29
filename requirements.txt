@@ -12,7 +12,7 @@ SQLAlchemy-Utils==0.42.1
 PyMySQL==1.2.0
 
 # Scheduling
-APScheduler==3.11.2
+APScheduler==3.11.3
 
 # Forms and validation
 WTForms==3.2.2
