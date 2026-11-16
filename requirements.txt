@@ -25,3 +25,12 @@ textile==4.0.5
 MarkupSafe==3.0.4
 requests==2.34.2
 
+# Minimum versions for indirect dependencies with security fixes.
+# A fresh install already picks these up; the floors make `pip install -r` upgrade existing environments too.
+# (No inline comments here: setup.py passes each line to install_requires as-is.)
+# Werkzeug: GHSA-g6x2-hccm-hh4m (safe_join, Windows device names)
+# urllib3: CVE-2026-97687, CVE-2026-97688, CVE-2026-97689
+# certifi: GHSA-6q48-6c7w-9gw2 (distrusted emSign ECC Root CA - G3)
+Werkzeug>=3.1.9
+urllib3>=2.8.0
+certifi>=2026.10.18
