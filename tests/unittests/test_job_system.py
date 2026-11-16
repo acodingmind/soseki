@@ -6,13 +6,14 @@
 import pytest
 import uuid
 from datetime import datetime
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, MagicMock
 
 from ssk.globals.job_mgr import JobMgr
 from ssk.logic.jobs.base_job import BaseJob
 from ssk.logic.jobs.empty_job import EmptyJob
 from ssk.logic.jobs.health_check_job import HealthCheckJob
 from ssk.logic.jobs.db_cleanup_job import DbCleanupJob
+from ssk.logic.jobs.db_stat_job import DbStatJob
 from ssk.models.job import Job
 
 
@@ -784,7 +785,8 @@ class TestDbCleanupJob:
         with app.app_context():
             with patch('flask_login.current_user') as mock_current_user, \
                  patch('ssk.logic.jobs.db_cleanup_job.get_db') as mock_get_db, \
-                 patch('ssk.logic.jobs.db_cleanup_job.now') as mock_now:
+                 patch('ssk.logic.jobs.db_cleanup_job.now') as mock_now, \
+                 patch('ssk.logic.jobs.db_cleanup_job.inspect') as mock_inspect:
                 
                 # Mock current_user properly
                 mock_current_user._get_current_object.return_value = Mock(is_anonymous=False, id=1)
@@ -792,10 +794,13 @@ class TestDbCleanupJob:
                 # Mock current time
                 mock_now.return_value = datetime(2024, 1, 10)
                 
-                # Mock database engine
-                mock_engine = Mock()
-                mock_engine.scalar.side_effect = [100, 0]  # Before: 100, After: 0
-                mock_get_db.return_value.engine = mock_engine
+                # Mock database engine and connection
+                mock_conn = Mock()
+                mock_conn.scalar.side_effect = [100, 0]  # Before: 100, After: 0
+                mock_engine = MagicMock()
+                mock_engine.begin.return_value.__enter__.return_value = mock_conn
+                mock_get_db.return_value.engines = {None: mock_engine}
+                mock_inspect.return_value.get_table_names.return_value = ['test_table']
                 
                 # Mock the app as well
                 mock_app = Mock()
@@ -809,8 +814,8 @@ class TestDbCleanupJob:
                 job.work()
                 
                 # Verify SQL operations
-                assert mock_engine.scalar.call_count == 2
-                mock_engine.execute.assert_called_once()
+                assert mock_conn.scalar.call_count == 2
+                mock_conn.execute.assert_called_once()
                 
                 # Verify audit log
                 job.write_to_audit.assert_called_once()
@@ -821,17 +826,21 @@ class TestDbCleanupJob:
         with app.app_context():
             with patch('flask_login.current_user') as mock_current_user, \
                  patch('ssk.logic.jobs.db_cleanup_job.get_db') as mock_get_db, \
-                 patch('ssk.logic.jobs.db_cleanup_job.now') as mock_now:
+                 patch('ssk.logic.jobs.db_cleanup_job.now') as mock_now, \
+                 patch('ssk.logic.jobs.db_cleanup_job.inspect') as mock_inspect:
                 
                 # Mock current_user properly
                 mock_current_user._get_current_object.return_value = Mock(is_anonymous=False, id=1)
                 
                 mock_now.return_value = datetime(2024, 1, 10)
                 
-                # Mock bound engine
-                mock_engine = Mock()
-                mock_engine.scalar.side_effect = [50, 0]
-                mock_get_db.return_value.get_engine.return_value = mock_engine
+                # Mock bound engine and connection
+                mock_conn = Mock()
+                mock_conn.scalar.side_effect = [50, 0]
+                mock_engine = MagicMock()
+                mock_engine.begin.return_value.__enter__.return_value = mock_conn
+                mock_get_db.return_value.engines = {'bind_key': mock_engine}
+                mock_inspect.return_value.get_table_names.return_value = ['test_table']
                 
                 # Mock the app as well
                 mock_app = Mock()
@@ -845,8 +854,8 @@ class TestDbCleanupJob:
                 job.work()
                 
                 # Verify bound engine was used
-                mock_get_db.return_value.get_engine.assert_called_once_with(bind_key='bind_key')
-                assert mock_engine.scalar.call_count == 2
+                mock_inspect.assert_called_once_with(mock_engine)
+                assert mock_conn.scalar.call_count == 2
     
     def test_db_cleanup_job_insufficient_args(self, app):
         """Test DbCleanupJob work method with insufficient arguments"""
@@ -923,3 +932,82 @@ class TestJobModel:
         job.task_id = 'test-task-123'
         
         assert repr(job) == "<Job 'test-task-123'>"
+
+
+class TestDbStatJob:
+    """Test suite for DbStatJob"""
+
+    def test_db_stat_job_work_success(self, app):
+        """Test DbStatJob work method with valid table metadata"""
+        with app.app_context():
+            with patch('ssk.logic.jobs.db_stat_job.get_db') as mock_get_db, \
+                 patch('ssk.models.db_stats.DBStats') as mock_db_stats_class:
+
+                mock_db_stats_class.return_value = Mock()
+
+                mock_metadata = Mock()
+                mock_metadata.tables.keys.return_value = ['job', 'audit']
+                mock_get_db.return_value.metadata = mock_metadata
+                mock_get_db.return_value.metadatas = {'logdb': mock_metadata}
+
+                mock_session = Mock()
+                mock_get_db.return_value.session = mock_session
+                mock_get_db.return_value.engines = {'logdb': Mock()}
+
+                mock_app = Mock()
+                mock_app._get_current_object.return_value = app
+
+                job = DbStatJob(mock_app, ['dbstats'])
+                job._app = app
+                job.write_to_log = Mock()
+
+                job.work()
+
+                assert mock_db_stats_class.call_count == 4  # job, audit (func) + job, audit (logdb)
+                assert mock_session.add.call_count == 4
+                assert mock_session.commit.call_count == 4
+
+    def test_db_stat_job_invalid_table_name(self, app):
+        """Test DbStatJob rejects invalid table names"""
+        with app.app_context():
+            with patch('ssk.logic.jobs.db_stat_job.get_db') as mock_get_db:
+
+                mock_metadata = Mock()
+                mock_metadata.tables.keys.return_value = ['bad table; drop']
+                mock_get_db.return_value.metadata = mock_metadata
+                mock_get_db.return_value.metadatas = {'logdb': Mock()}
+                mock_get_db.return_value.metadatas['logdb'].tables.keys.return_value = []
+
+                mock_app = Mock()
+                mock_app._get_current_object.return_value = app
+
+                job = DbStatJob(mock_app, ['dbstats'])
+                job._app = app
+                job.write_to_log = Mock()
+
+                job.work()
+
+                log_calls = [call[0][0] for call in job.write_to_log.call_args_list]
+                assert any("Failed" in call for call in log_calls)
+
+    def test_db_stat_job_exception(self, app):
+        """Test DbStatJob work method handles database exceptions"""
+        with app.app_context():
+            with patch('ssk.logic.jobs.db_stat_job.get_db') as mock_get_db:
+
+                mock_metadata = Mock()
+                mock_metadata.tables.keys.side_effect = Exception("DB error")
+                mock_get_db.return_value.metadata = mock_metadata
+                mock_get_db.return_value.metadatas = {'logdb': Mock()}
+
+                mock_app = Mock()
+                mock_app._get_current_object.return_value = app
+
+                job = DbStatJob(mock_app, ['dbstats'])
+                job._app = app
+                job.write_to_log = Mock()
+
+                job.work()
+
+                log_calls = [call[0][0] for call in job.write_to_log.call_args_list]
+                assert any("Failed" in call for call in log_calls)

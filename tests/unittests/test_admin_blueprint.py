@@ -31,7 +31,7 @@ def test_admin_index_authenticated(app, client):
             )
             current_user_mock.return_value.is_admin.return_value = True
             
-            with patch('flask_user.decorators.current_user', current_user_mock.return_value), \
+            with patch('ssk.auth.decorators.current_user', current_user_mock.return_value), \
                  patch('ssk.blueprints.admin.render_template', return_value='<html>Admin Home</html>') as mock_render, \
                  patch('ssk.blueprints.admin.get_timestamp_str', return_value='2024-01-01T00:00:00'):
                 response = client.get('/admin/')
@@ -54,7 +54,7 @@ def test_admin_index_unauthorized(app, client):
             )
             current_user_mock.return_value.is_admin.return_value = False
             
-            with patch('flask_user.decorators.current_user', current_user_mock.return_value), \
+            with patch('ssk.auth.decorators.current_user', current_user_mock.return_value), \
                  patch('ssk.blueprints.admin.render_template', return_value='<html>Admin Home</html>') as mock_render, \
                  patch('ssk.blueprints.admin.get_timestamp_str', return_value='2024-01-01T00:00:00'):
                 response = client.get('/admin/')
@@ -82,7 +82,7 @@ def test_log_download_success(app, client):
             with patch('os.path.exists', return_value=True), \
                  patch('os.getcwd', return_value='/tmp'), \
                  patch('ssk.blueprints.admin.send_file') as mock_send_file, \
-                 patch('flask_user.decorators.current_user', current_user_mock.return_value):
+                 patch('ssk.auth.decorators.current_user', current_user_mock.return_value):
                 
                 current_app.config['LOG_FILE'] = 'test.log'
                 # Create a proper Flask response mock
@@ -114,7 +114,7 @@ def test_log_download_file_not_exists(app, client):
             # Mock log file does not exist
             with patch('os.path.exists', return_value=False), \
                  patch('os.getcwd', return_value='/tmp'), \
-                 patch('flask_user.decorators.current_user', current_user_mock.return_value), \
+                 patch('ssk.auth.decorators.current_user', current_user_mock.return_value), \
                  patch('ssk.blueprints.admin.render_template', return_value='<html>Home</html>') as mock_render, \
                  patch('ssk.blueprints.admin.get_timestamp_str', return_value='2024-01-01T00:00:00'):
                 
@@ -140,7 +140,7 @@ def test_system_chart(app, client):
             current_user_mock.return_value.is_admin.return_value = True
             
             with patch('ssk.blueprints.admin_handler.AdminHandler.system_chart') as mock_system_chart, \
-                 patch('flask_user.decorators.current_user', current_user_mock.return_value), \
+                 patch('ssk.auth.decorators.current_user', current_user_mock.return_value), \
                  patch('ssk.blueprints.admin.render_template', return_value='<html>System Chart</html>') as mock_render:
                 
                 # Mock return values
@@ -171,7 +171,7 @@ def test_system_perf(app, client):
             current_user_mock.return_value.is_admin.return_value = True
             
             with patch('ssk.blueprints.admin_handler.AdminHandler.system_stats') as mock_system_stats, \
-                 patch('flask_user.decorators.current_user', current_user_mock.return_value), \
+                 patch('ssk.auth.decorators.current_user', current_user_mock.return_value), \
                  patch('ssk.blueprints.admin.render_template', return_value='<html>System Stats</html>') as mock_render:
                 
                 # Mock return values

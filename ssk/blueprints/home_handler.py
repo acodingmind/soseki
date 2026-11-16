@@ -8,6 +8,7 @@ from flask_login import current_user
 from ssk import AppSettings, get_logic, get_db
 from ssk.globals.contacts_mgr import ContactMgr
 from ssk.forms.contact_form import ContactForm
+from ssk.models.job import Job
 
 
 class HomeHandler(object):
@@ -36,21 +37,33 @@ class HomeHandler(object):
         return HomeHandler.PAGE_TASKS, my_tasks
 
     @staticmethod
+    def can_access_job(a_task_id):
+        """True if the current user owns the job or is an admin."""
+        if current_user.is_anonymous or a_task_id is None:
+            return False
+
+        my_job = Job.get_by_key(a_task_id)
+        if my_job is None:
+            return False
+
+        return my_job.user_id == current_user.id or current_user.is_admin()
+
+    @staticmethod
     def tasks_action(a_request):
         my_tasks = []
 
         if AppSettings().get_setting("LOGIN_OFF"):
             return HomeHandler.PAGE_CLOSED, my_tasks
 
-        if a_request.method == 'POST':
+        if a_request.method == 'POST' and not current_user.is_anonymous:
             my_job_mgr = get_logic().get_job_mgr()
 
             my_job_to_stop = a_request.form.get('stop')
-            if my_job_to_stop is not None:
+            if HomeHandler.can_access_job(my_job_to_stop):
                 my_job_mgr.stop_job(my_job_to_stop)
 
             my_job_to_delete = a_request.form.get('delete')
-            if my_job_to_delete is not None:
+            if HomeHandler.can_access_job(my_job_to_delete):
                 my_job_mgr.delete_job(my_job_to_delete)
 
         if not current_user.is_anonymous:

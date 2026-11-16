@@ -120,7 +120,7 @@
     };
 
     {% for my_tmp_task in tasks %}
-        add_progress( '{{ my_tmp_task.tid }}', '{{ my_tmp_task.name }}', '{{ my_tmp_task.details }}', '{{ my_tmp_task.status }}', {{ my_tmp_task.prog }} )
+        add_progress( {{ my_tmp_task.tid|tojson }}, {{ my_tmp_task.name|tojson }}, {{ my_tmp_task.details|tojson }}, {{ my_tmp_task.status|tojson }}, {{ my_tmp_task.prog }} )
     {% endfor %}
 
     </script>

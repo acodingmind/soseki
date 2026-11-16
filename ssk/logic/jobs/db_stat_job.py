@@ -3,6 +3,8 @@
 # SPDX-License-Identifier: MIT
 #
 
+import re
+
 from .base_job import BaseJob
 from sqlalchemy import text
 from ... import get_db
@@ -24,6 +26,8 @@ class DbStatJob(BaseJob):
                 my_all_tables += my_log_tables
 
                 for my_tmp_table in my_all_tables:
+                    if not re.match(r'^[\w.]+$', my_tmp_table):
+                        raise ValueError("invalid table name: {}".format(my_tmp_table))
                     my_count_sql = text("select count(*) from {}".format(my_tmp_table))
 
                     my_prefix = "func"

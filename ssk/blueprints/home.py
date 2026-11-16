@@ -6,8 +6,9 @@
 import csv
 import os
 
-from flask import (Blueprint, request, Response, send_file, current_app)
+from flask import (Blueprint, request, Response, send_file, current_app, abort)
 from flask import render_template
+from flask_login import current_user
 
 from ssk.forms.contact_form import ContactForm
 from ssk.ssk_consts import SSK_ADMIN_GROUP
@@ -49,6 +50,8 @@ def blog(note):
     if WebGate.is_closed():
         return WebGate.render_closed()
 
+    if '..' in note or '/' in note:
+        abort(404)
     my_note_path = "local/notes/{}.html".format(note)
     try:
         my_form = ContactForm()
@@ -89,6 +92,9 @@ def blog_posts():
 
 @bp.route('/tasks_action', methods=['POST'])
 def tasks_action():
+    if current_user.is_anonymous:
+        abort(403)
+
     _, my_tasks = HomeHandler.tasks_action(request)
 
     return render_template("ssk/tasks.html", tasks=my_tasks, admin_group_name=SSK_ADMIN_GROUP)
@@ -96,14 +102,22 @@ def tasks_action():
 
 @bp.route('/task_log_download/<string:a_tid>')
 def task_log_download(a_tid):
+    if not HomeHandler.can_access_job(a_tid):
+        abort(404)
+
     my_logfile = get_logic().get_job_mgr().get_logfile(a_tid)
 
     if my_logfile is not None and os.path.exists(my_logfile):
         return send_file(my_logfile, as_attachment=True)
 
+    abort(404)
+
 
 @bp.route('/progress/<string:a_thread_id>')
 def progress(a_thread_id):
+    if not HomeHandler.can_access_job(a_thread_id):
+        abort(404)
+
     def generate(a_job_tracker, a_tid):
         my_progress = a_job_tracker.get_progress(a_tid)
         yield "data:" + str(my_progress) + "\n\n"

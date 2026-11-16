@@ -6,7 +6,7 @@
 
 from flask import current_app, render_template
 
-from flask_user import current_user
+from flask_login import current_user
 from flask_mail import Mail, Message
 
 from .app_settings import AppSettings

@@ -87,5 +87,12 @@ coverage.xml
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# Secrets / credentials
+*.key
+*.pem
+*.secret
+secrets*
+credentials*
+
 # Local files
 local/*

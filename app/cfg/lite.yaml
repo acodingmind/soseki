@@ -61,7 +61,7 @@ ssk:
     string: "data"
 
   ROOT_URL:
-    string: "https://codingminds.io"
+    string: ""  # your app's public URL; the hourly health check requests it. Empty disables that check.
 
   MAIL_USERNAME:
     string: 'your-smtp-username'
@@ -122,3 +122,6 @@ ssk:
 
   FONTAWESOME_KIT_ID:
     string: ''  # Leave empty to use Font Awesome Free CDN
+
+  IP_BLACKLIST:
+    json: []
