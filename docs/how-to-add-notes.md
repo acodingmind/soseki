@@ -10,23 +10,25 @@ Soseki's note/blog system allows you to write content as Jupyter notebooks and a
 2. Converts them to HTML using `jupyter nbconvert`
 3. Stores rendered HTML in `app/html/local/notes/`
 4. Tracks metadata in `app/html/local/notes/meta.csv`
-5. Displays notes via the `/blog/<note>` route
+5. Lists notes at `/ssk/blog_posts` and shows each one at `/ssk/blog/<note>`
+
+Jupyter isn't a Soseki dependency; install it where you render notes (`pip install jupyter`).
 
 ## Directory Structure
 
 ```
-soseki/
+myproject/
 ├── jup/                             # Source Jupyter notebooks
-│   ├── test.ipynb                   # Example notebook
+│   ├── first.ipynb                  # Example notebook
 │   └── your-note.ipynb              # Your new notebook
 ├── app/
 │   └── html/
 │       └── local/
 │           └── notes/               # Rendered HTML files
 │               ├── meta.csv         # Metadata index
-│               ├── test.html        # Rendered from test.ipynb
+│               ├── first.html       # Rendered from first.ipynb
 │               └── your-note.html   # Rendered from your-note.ipynb
-└── scripts/
+└── bin/
     └── render_jup.sh                # Conversion script
 ```
 
@@ -83,8 +85,8 @@ Final thoughts...
 Use the provided script to convert all notebooks to HTML:
 
 ```bash
-# From the project root
-./scripts/render_jup.sh
+# From the project root (the script uses relative paths)
+./bin/render_jup.sh
 ```
 
 This script:
@@ -123,13 +125,18 @@ seq,note,title,subtitle,created,labels
 2,your-note,Your Note Title,Brief description,2025-01-21,python|tutorial
 ```
 
+The first line is the header and is always skipped. Notes are listed in the order of the rows in the file.
+
 **Column descriptions:**
-- `seq` - Display order (lower numbers appear first)
+- `seq` - Informational only; it doesn't affect the order
 - `note` - Notebook filename without `.ipynb` (must match HTML filename)
 - `title` - Display title for the blog listing
 - `subtitle` - Brief description/subtitle
 - `created` - Publication date (YYYY-MM-DD format)
-- `labels` - Tags separated by pipe `|` character
+- `labels` - Free text shown as-is next to the note (e.g. `python|tutorial`); it isn't used for filtering
+
+Every row needs all six columns, or the listing page fails with a server error. Quote a title or subtitle that
+contains a comma: `"Hello, world"`.
 
 ### Example Entry
 
@@ -141,38 +148,47 @@ For a notebook `jup/machine-learning-basics.ipynb`:
 
 ## Step 4: Verify Your Note
 
-1. **Start the application:**
+1. **Restart the application.** On every start, `create_app()` copies `app/html/local/` into
+   `app/templates/local/`, and the blog routes read that copy. New notes and `meta.csv` changes don't appear
+   until the next start.
    ```bash
-   source venv/bin/activate
-   export FLASK_ENV='lite'
-   flask run
+   ./bin/run_app.sh
    ```
 
 2. **View the blog listing:**
-   - Navigate to `/blog_posts` or click "Thoughts" in the sidebar
+   - Navigate to `/ssk/blog_posts` or click "Thoughts" in the sidebar
    - Your note should appear in the list
 
 3. **View your note:**
    - Click on the note title
-   - Or navigate directly to `/blog/your-note`
+   - Or navigate directly to `/ssk/blog/your-note`
    - The HTML will be rendered within the site layout
 
 ## Routes and Templates
 
 ### Blog Routes (defined in `ssk/blueprints/home.py`)
 
-- **`/blog_posts`** - Lists all blog posts
+- **`/ssk/blog_posts`** - Lists all blog posts
   - Reads `meta.csv` and displays all notes
   - Template: `ssk/templates/ssk/posts.html`
 
-- **`/blog/<note>`** - Displays a specific note
-  - Renders HTML from `app/html/local/notes/<note>.html`
-  - Template: `ssk/templates/local/notebook.html`
-  - Includes a contact form in the sidebar
+- **`/ssk/blog/<note>`** - Displays a specific note
+  - Includes `local/notes/<note>.html`, copied at startup from `app/html/local/notes/`
+  - Template: `local/notebook.html`, copied at startup from `app/html/local/notebook.html`
+  - Includes a contact form in the sidebar, handled by the app's own `post_contact` route
+
+Both routes show the "closed" page while the site is in maintenance mode (`WEBSITE_OPEN` off).
+
+The note is included with Jinja's `{% include %}`, so its HTML is parsed as a template. If notebook output
+contains `{{`, `{%` or `{#` (for example in code, LaTeX or JavaScript), rendering fails and the not-found page
+is shown. Wrap such content in `{% raw %}...{% endraw %}` in the rendered HTML.
 
 ### Template Structure
 
-**`ssk/templates/local/notebook.html`:**
+Edit the files under `app/html/local/`. The copies under `app/templates/local/` (a symlink into
+`ssk/templates/local/`) are overwritten on every start.
+
+**`app/html/local/notebook.html`:**
 - Main layout with sidebar
 - Includes the rendered HTML note
 - Provides a contact form for reader feedback
@@ -225,13 +241,19 @@ Add styles to `app/assets/local/global.css`:
 1. **Check `meta.csv`** - Ensure entry exists and is properly formatted
 2. **Check note name** - Must match exactly (case-sensitive)
 3. **Check CSV format** - Use commas as delimiters, no extra spaces
-4. **Restart app** - CSV is read on page load
+4. **Restart the app** - the routes read the copy made at startup, so edits to `app/html/local/notes/` only
+   show up after a restart
 
-### Note Shows 404 Error
+### Note Shows the Not-Found Page
+
+A missing or broken note shows the not-found page (with status 200), and the log records
+`ERROR: note not found local/notes/<note>.html` with the cause.
 
 1. **Check HTML file exists** - Look in `app/html/local/notes/`
 2. **Check filename** - Must be `<note>.html` (not `.ipynb`)
-3. **Re-run render script** - May need to regenerate HTML
+3. **Restart the app** - New files are picked up at startup
+4. **Check for Jinja syntax** in the HTML (`{{`, `{%`, `{#`) - see [Routes and Templates](#routes-and-templates)
+5. **Re-run render script** - May need to regenerate HTML
 
 ### Notebook Not Converting
 
@@ -263,14 +285,14 @@ jupyter nbconvert --to html --no-input jup/*.ipynb
 
 - **Use descriptive titles** - Help readers understand the content
 - **Add meaningful subtitles** - Provide context at a glance
-- **Tag appropriately** - Use consistent labels for easy filtering
+- **Label consistently** - Labels are shown next to each note
 - **Include images** - Embed visualizations and diagrams
 - **Test code cells** - Run all cells before rendering
 
 ### Organization
 
 - **Use semantic filenames** - `data-analysis-2024-q1.ipynb` not `notebook1.ipynb`
-- **Number by sequence** - Use `seq` in meta.csv for ordering
+- **Order by row** - The listing follows the row order in meta.csv
 - **Keep notebooks focused** - One topic per notebook
 - **Update dates** - Use actual publication dates in meta.csv
 
@@ -290,14 +312,14 @@ jupyter notebook
 
 # 2. Render to HTML
 cd ..
-./scripts/render_jup.sh
+./bin/render_jup.sh
 
 # 3. Add metadata
 echo "3,my-note,My Note Title,Description,2025-01-21,tag1|tag2" >> app/html/local/notes/meta.csv
 
-# 4. Test locally
-flask run
-# Navigate to http://localhost:5000/blog_posts
+# 4. Restart and test locally
+./bin/run_app.sh
+# Navigate to http://localhost:5000/ssk/blog_posts
 
 # 5. Commit and deploy
 git add jup/my-note.ipynb app/html/local/notes/my-note.html app/html/local/notes/meta.csv
@@ -311,7 +333,7 @@ If you don't want to use Jupyter, you can create HTML files directly:
 
 1. **Create HTML file** in `app/html/local/notes/my-note.html`
 2. **Add metadata** to `meta.csv`
-3. **Access via** `/blog/my-note`
+3. **Restart the app and open** `/ssk/blog/my-note`
 
 The HTML will be included in the notebook template automatically.
 
@@ -331,5 +353,5 @@ Potential improvements to consider:
 For issues or questions:
 - Check logs in `log/web.log`
 - Review the blueprint: `ssk/blueprints/home.py`
-- Examine templates: `ssk/templates/local/notebook.html`
+- Examine templates: `app/html/local/notebook.html`
 - GitHub Issues: https://github.com/acodingmind/soseki/issues
