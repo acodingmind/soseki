@@ -6,7 +6,9 @@
 """End-to-end tests for ssk.auth: real views, templates, database and (captured) emails."""
 
 import re
+import sys
 from contextlib import contextmanager
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import jinja2
@@ -15,6 +17,11 @@ from flask import current_app
 
 from ssk.db import get_db
 from ssk.models.user import User
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+# the fixture imports the blanco app package; plain `pytest` (as run in CI) doesn't put the repo root on sys.path
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 # Made by the previous stack (passlib 1.7.4 bcrypt + ssk's 72-byte patch), as stored in existing databases.
 LEGACY_HASH_SHORT = "$2b$12$VW.rPazhnJ9B19hNYLV.COTfhvusRkN3Ny8WqoC2Ewa03AyNpgH5O"   # "Legacy-Passw0rd"
@@ -28,7 +35,7 @@ FREE_EMAIL = "free@example.com"
 def auth_app(app):
     # render the real templates (the test app's own template folder is empty)
     app.jinja_loader  # noqa: B018 - make sure Flask built its loader first
-    app.jinja_env.loader = jinja2.ChoiceLoader([jinja2.FileSystemLoader("ssk/templates"), app.jinja_env.loader])
+    app.jinja_env.loader = jinja2.ChoiceLoader([jinja2.FileSystemLoader(str(REPO_ROOT / "ssk" / "templates")), app.jinja_env.loader])
     # the layout links to the blanco app's own pages
     from app.blueprints import api, home
     app.register_blueprint(home.bp)
