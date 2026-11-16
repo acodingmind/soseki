@@ -181,7 +181,8 @@ def test_blog_posts_closed(app, client):
 def test_tasks_action_post(app, client):
     """Test the /ssk/tasks_action POST route"""
     with app.app_context():
-        with patch('ssk.blueprints.home_handler.HomeHandler.tasks_action', 
+        with patch('ssk.blueprints.home.current_user', Mock(is_anonymous=False)), \
+             patch('ssk.blueprints.home_handler.HomeHandler.tasks_action', 
                    return_value=('ssk/tasks.html', [{'tid': '456', 'name': 'Updated Task'}])) as mock_tasks_action, \
              patch('ssk.blueprints.home.render_template', return_value='<html>Updated Tasks</html>') as mock_render:
             
@@ -200,7 +201,8 @@ def test_tasks_action_post(app, client):
 def test_task_log_download_exists(app, client):
     """Test the /ssk/task_log_download/<tid> route when log file exists"""
     with app.app_context():
-        with patch('ssk.blueprints.home.get_logic') as mock_get_logic, \
+        with patch('ssk.blueprints.home.HomeHandler.can_access_job', return_value=True), \
+             patch('ssk.blueprints.home.get_logic') as mock_get_logic, \
              patch('os.path.exists', return_value=True), \
              patch('ssk.blueprints.home.send_file') as mock_send_file:
             
@@ -222,7 +224,8 @@ def test_task_log_download_exists(app, client):
 def test_task_log_download_not_exists(app, client):
     """Test the /ssk/task_log_download/<tid> route when log file doesn't exist"""
     with app.app_context():
-        with patch('ssk.blueprints.home.get_logic') as mock_get_logic, \
+        with patch('ssk.blueprints.home.HomeHandler.can_access_job', return_value=True), \
+             patch('ssk.blueprints.home.get_logic') as mock_get_logic, \
              patch('os.path.exists', return_value=False):
             
             mock_job_mgr = Mock()
@@ -231,14 +234,15 @@ def test_task_log_download_not_exists(app, client):
             
             response = client.get('/ssk/task_log_download/task123')
             
-            # Should return 500 error because function returns None (this is a bug in the original code)
-            assert response.status_code == 500
+            # missing log -> 404, reported as 400 by ssk's request_error handler
+            assert response.status_code == 400
 
 
 def test_task_log_download_no_logfile(app, client):
     """Test the /ssk/task_log_download/<tid> route when no logfile is returned"""
     with app.app_context():
-        with patch('ssk.blueprints.home.get_logic') as mock_get_logic:
+        with patch('ssk.blueprints.home.HomeHandler.can_access_job', return_value=True), \
+             patch('ssk.blueprints.home.get_logic') as mock_get_logic:
             
             mock_job_mgr = Mock()
             mock_job_mgr.get_logfile.return_value = None
@@ -246,14 +250,15 @@ def test_task_log_download_no_logfile(app, client):
             
             response = client.get('/ssk/task_log_download/task123')
             
-            # Should return 500 error because function returns None (this is a bug in the original code)
-            assert response.status_code == 500
+            # missing log -> 404, reported as 400 by ssk's request_error handler
+            assert response.status_code == 400
 
 
 def test_progress_stream(app, client):
     """Test the /ssk/progress/<thread_id> route for server-sent events"""
     with app.app_context():
-        with patch('ssk.blueprints.home.get_logic') as mock_get_logic:
+        with patch('ssk.blueprints.home.HomeHandler.can_access_job', return_value=True), \
+             patch('ssk.blueprints.home.get_logic') as mock_get_logic:
             
             mock_job_mgr = Mock()
             mock_job_mgr.get_progress.return_value = 75
