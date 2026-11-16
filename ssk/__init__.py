@@ -51,6 +51,24 @@ def _patched_hash_password(self, password):
     return _original_usermanager_hash_password(self, truncate_password(password))
 UserManager.hash_password = _patched_hash_password
 
+# Monkey-patch Flask-User's UserManager.make_safe_url against open redirects (CVE-2021-23401).
+# Flask-User only strips scheme and host, so '/////evil.com' or '\\\\evil.com' survive and browsers
+# treat them as scheme-relative URLs. Werkzeug >= 2.1 no longer rewrites such Location headers.
+# Flask-User has no fixed release, so we normalise the result to a local path here.
+_original_usermanager_make_safe_url = UserManager.make_safe_url
+_URL_IGNORED_CHARS = ''.join(chr(my_code) for my_code in range(0x21))  # C0 controls and space
+def _patched_make_safe_url(self, url):
+    """Patched make_safe_url that never returns a scheme-relative ('//host') URL."""
+    my_safe_url = _original_usermanager_make_safe_url(self, url or '')
+    # browsers drop tab/CR/LF anywhere, strip leading controls/spaces and treat '\' as '/'
+    for my_char in '\t\r\n':
+        my_safe_url = my_safe_url.replace(my_char, '')
+    my_safe_url = my_safe_url.lstrip(_URL_IGNORED_CHARS).replace('\\', '/')
+    if my_safe_url.startswith('//'):
+        my_safe_url = '/' + my_safe_url.lstrip('/')
+    return my_safe_url
+UserManager.make_safe_url = _patched_make_safe_url
+
 from .logic.jobs.db_cleanup_job import DbCleanupJob
 from .logic.jobs.db_stat_job import DbStatJob
 from .logic.jobs.health_check_job import HealthCheckJob
