@@ -40,6 +40,12 @@ class ApiGate:
         for my_tmp_key in my_keys:
             ApiGate.__allowed[my_tmp_key.key] = "key driver {}".format(my_tmp_key.id)
 
+        # drop cached sessions of keys that are no longer allowed (revoked / deactivated)
+        if ApiGate.__active is not None:
+            for my_tmp_key in list(ApiGate.__active.keys()):
+                if my_tmp_key not in ApiGate.__allowed:
+                    ApiGate.__active.pop(my_tmp_key, None)
+
     @staticmethod
     def get_new_key():
         my_ret_val = str(uuid.uuid4())
@@ -77,8 +83,17 @@ class ApiGate:
         return my_active
 
     @staticmethod
-    def is_active_now(a_key):
+    def is_active_now(a_key, ignore_open=False):
         my_retval = False
+
+        # an active session never outlives the key or a closed api
+        if ApiGate.__allowed is None or a_key not in ApiGate.__allowed.keys():
+            if ApiGate.__active is not None:
+                ApiGate.__active.pop(a_key, None)
+            return False
+
+        if not ApiGate.is_open() and not ignore_open:
+            return False
 
         if ApiGate.__active is not None and a_key in ApiGate.__active.keys():
             my_ts = ApiGate.__active[a_key]

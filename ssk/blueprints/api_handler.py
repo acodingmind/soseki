@@ -24,7 +24,7 @@ class ApiHandler(object):
         my_mesg = ""
         my_ret_val = 400
 
-        if ApiGate.is_active_now(a_key):
+        if ApiGate.is_active_now(a_key, ignore_open=True):
             my_mesg = ApiGate.DONE
             my_ret_val = 200
         elif ApiGate.num_active_keys() < current_app.config["MAX_ACTIVE_KEYS"]:
