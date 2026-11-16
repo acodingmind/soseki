@@ -9,7 +9,7 @@ import os.path
 from flask import (Blueprint, current_app, send_file)
 from flask import render_template
 from flask_login import current_user
-from flask_user import roles_required
+from ssk.auth import roles_required
 
 from .. import get_db
 from ..models.audit import Audit

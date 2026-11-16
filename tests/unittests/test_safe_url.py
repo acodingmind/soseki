@@ -8,12 +8,11 @@ from urllib.parse import urlsplit
 import pytest
 from flask import current_app
 
-import ssk  # noqa: F401  (applies the Flask-User patches)
-from flask_user import UserManager
+from ssk.auth import UserManager
 
 
 def _make_safe_url(a_url):
-    return UserManager.make_safe_url(UserManager.__new__(UserManager), a_url)
+    return UserManager().make_safe_url(a_url)
 
 
 def _is_local(a_url):

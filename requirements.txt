@@ -3,8 +3,11 @@ Flask==3.1.3
 Flask-Login==0.6.3
 Flask-Mail==0.10.0
 Flask-SQLAlchemy==3.1.1
-Flask-User==1.0.2.2
 Flask-WTF==1.3.0
+
+# Accounts (ssk.auth): password hashing and signed tokens
+bcrypt==5.0.0
+itsdangerous==2.2.0
 
 # Database
 SQLAlchemy==2.0.57
@@ -24,6 +27,7 @@ PyYAML==6.0.3
 textile==4.0.5
 MarkupSafe==3.0.4
 requests==2.34.2
+
 
 # Minimum versions for indirect dependencies with security fixes.
 # A fresh install already picks these up; the floors make `pip install -r` upgrade existing environments too.
