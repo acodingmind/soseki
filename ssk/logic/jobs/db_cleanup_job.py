@@ -3,10 +3,9 @@
 # SPDX-License-Identifier: MIT
 #
 
-import re
 from datetime import timedelta
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 from .base_job import BaseJob
 from ... import get_db
@@ -29,28 +28,30 @@ class DbCleanupJob(BaseJob):
                 self.write_to_log("cleanup {} start {} until {}".format(my_args[0], my_table_name, my_since))
 
                 try:
-                    my_engine = None
                     my_table_split = my_table_name.split('.')
                     if len(my_table_split) > 1:
-                        my_table_name = my_table_split[1]
-                        my_engine = get_db().get_engine(bind_key=my_table_split[0])
+                        my_bind_key, my_table_name = my_table_split[0], my_table_split[1]
                     else:
-                        my_table_name = my_table_split[0]
-                        my_engine = get_db().engine
+                        my_bind_key, my_table_name = None, my_table_split[0]
 
-                    if not re.match(r'^[\w.]+$', my_table_name):
-                        raise ValueError("invalid table name: {}".format(my_table_name))
+                    my_engine = get_db().engines[my_bind_key]
+
+                    # the table name can't be a bound parameter, so only accept existing tables
+                    if my_table_name not in inspect(my_engine).get_table_names():
+                        raise ValueError("unknown table: {}".format(my_table_name))
 
                     my_pre = text("select count(*) from {} where created < :since".format(my_table_name))
-                    my_to_delete = my_engine.scalar(my_pre.bindparams(since=my_since))
                     my_sql = text("delete from {} where created < :since".format(my_table_name))
-                    my_engine.execute(my_sql.bindparams(since=my_since))
-                    my_check = my_engine.scalar(my_pre.bindparams(since=my_since))
+                    with my_engine.begin() as my_conn:
+                        my_to_delete = my_conn.scalar(my_pre, {"since": my_since})
+                        my_conn.execute(my_sql, {"since": my_since})
+                        my_check = my_conn.scalar(my_pre, {"since": my_since})
+
                     if my_check == 0:
                         self.write_to_audit("OK", "cleanup table {} until {} ({} records deleted)".format(my_table_name, my_since.strftime("%D %H:%M:%S"), my_to_delete))
+                    self.write_to_log("Db Cleanup Finished successfully")
                 except Exception as problem:
                     self.write_to_log("Db Cleanup {} {} Failed {}".format(my_table_name, my_since, problem))
-
-                self.write_to_log("Db Cleanup Finished successfully")
+                    self.write_to_audit("NOK", "cleanup table {} failed: {}".format(my_table_name, str(problem)[:80]))
             else:
                 self.write_to_log("Db Cleanup Failed not enough arguments")
