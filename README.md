@@ -6,14 +6,14 @@ Soseki takes care of the repetitive infrastructure—authentication, database ma
 
 ## Features
 
-- 🔐 **User Management** - Complete authentication system with Flask-User
+- 🔐 **User Management** - Sign-in, registration (optionally invite-only), email confirmation, password reset and roles
 - 📊 **Database Management** - SQLAlchemy integration with dual database support (app + logs)
 - ⏰ **Job Scheduling** - Background job execution with APScheduler
 - 📧 **Email Support** - Built-in email functionality with Flask-Mail
-- 🔌 **API Gateway** - API key management and rate limiting
-- 📝 **Request Logging** - Comprehensive request/response logging
+- 🔌 **API Gateway** - API key management with a cap on concurrently active keys
+- 📝 **Request Logging** - Logs slow and failed requests to a separate log database
 - 🛠️ **Database Versioning** - Built-in database migration support
-- 🛠️ **CLI** - interactive command line for quick feature development and testing
+- 💻 **Admin Terminal** - in-browser command line for managing users, jobs, settings and API keys
 - 🎨 **Customizable** - YAML-based configuration system
 
 ## Requirements
@@ -24,7 +24,7 @@ Soseki takes care of the repetitive infrastructure—authentication, database ma
 
 ## Installation
 
-### From PyPI (coming soon)
+### From PyPI
 
 ```bash
 pip install soseki
@@ -41,13 +41,14 @@ pip install -e .
 ### Development Installation
 
 ```bash
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+pip install -e .
 ```
 
 ## Quick Start
 
-1. Initialize a new soseki like application:
+1. Create a project and initialize a Soseki app in it:
 
 ```bash
 # Create a project folder 
@@ -59,11 +60,13 @@ python3 -m venv venv
 source venv/bin/activate
 pip install soseki
 
-# Initialize basic soseki app
-python3 -m ssk.cli init
+# Initialize basic soseki app (creates app/, bin/ and jup/)
+soseki init
 ```
 
-2. Update configuration file (`cfg/lite.yaml`):
+2. Edit the configuration file `app/cfg/lite.yaml`. **Do this before the first start**: the first start creates
+   the database and the `admin`, free and pro users from these values, and changing the passwords in the file
+   later has no effect.
 
 ```yaml
 ssk:
@@ -75,14 +78,19 @@ ssk:
     string: 'sqlite:///myapp.sqlite'
   LOG_DB_CONNSTR:
     string: 'sqlite:///myapp_log.sqlite'
+  ADMIN_PASS:
+    string: 'a-strong-admin-password'
 ```
+
+   Also replace the `USER_FREE_PASS` and `USER_PRO_PASS` placeholders. See [Configuration](https://github.com/acodingmind/soseki/blob/release/docs/configuration.md) for every setting.
 
 3. Run your application:
 
 ```bash
-# run the app
 ./bin/run_app.sh
 ```
+
+   It serves on port 5000. Sign in at `/user/sign-in` as `admin`; the admin terminal is at `/cmd/terminal`.
 
 ## Documentation
 
@@ -122,19 +130,24 @@ soseki/
 
 ## Running Tests
 
+Run from the repository root (the tests load `app/cfg/tst.yaml` by relative path):
+
 ```bash
 pytest
+pytest --cov=ssk --cov-report=term-missing
+pytest tests/unittests/test_home_blueprint.py
 ```
 
-With coverage:
+## Security Notes
 
-```bash
-pytest --cov=ssk
-```
+- Set a random `SECRET_KEY` and replace every `changeme` value in the config before the first start.
+- Serve over HTTPS in production and enable `SESSION_COOKIE_SECURE`.
+- Accounts are handled by `ssk.auth` (Flask-Login, bcrypt, itsdangerous). Changing a password signs out the
+  user's other sessions, password-reset links work once, and post-login redirects (`next=`) stay on the site.
 
 ## License
 
-MIT License - see [LICENCE](https://github.com/acodingmind/soseki/blob/release/LICENSE) file for details.
+MIT License - see the [LICENSE](https://github.com/acodingmind/soseki/blob/release/LICENSE) file for details.
 
 ## Author
 
@@ -144,7 +157,7 @@ Michał Świtała - [CodingMinds.io](https://codingminds.io)
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-- [How Contribute](https://github.com/acodingmind/soseki/blob/release/CONTRIBUTING.md)
+- [How to Contribute](https://github.com/acodingmind/soseki/blob/release/CONTRIBUTING.md)
 
 ## Support
 

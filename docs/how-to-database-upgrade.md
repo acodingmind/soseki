@@ -1,850 +1,247 @@
 # How to Perform Database Upgrades
 
-This guide explains how to add new database tables or modify existing ones in Soseki's dual database system.
+Soseki doesn't use Alembic. Each schema change is a small Python function, and the pending ones run
+automatically when the app starts.
 
-## Overview
+## How it works
 
-Soseki uses a versioned database migration system that:
+The `version` table in the main database holds two counters:
 
-1. Tracks database schema versions via `SSK_MODEL_VERSION` in `ssk/ssk_consts.py`
-2. Defines migration functions in `ssk/ssk_upgrader.py`
-3. Automatically applies migrations on application startup
-4. Supports both the main app database and the separate log database
+| Counter | Owned by | Required version comes from | Upgrade functions |
+|---|---|---|---|
+| `db_version` | your app | `DB_MODEL_VERSION` in your config YAML | `DbUpgrader` in `app/db_upgrader.py` |
+| `ssk_version` | the Soseki framework | `SSK_MODEL_VERSION` in `ssk/ssk_consts.py` | `SSKUpgrader` in `ssk/ssk_upgrader.py` |
 
-### Key Concepts
+If you build an app on Soseki, you only touch the first row. The second is for framework maintainers.
+The log database has no counter of its own; its tables are part of the framework track.
 
-- **Version Number**: Sequential integer in `SSK_MODEL_VERSION` (current: 8)
-- **Dual Databases**: Main app database (`appdb`) + Log database (`logdb`)
-- **Automatic Migration**: Runs via `SSKUpgrader` class during `start_ssk()`
-- **Skip List**: Prevents re-running migrations when initializing from scratch
+On every start, `start_ssk()` calls `db_version_check()` (`ssk/db.py`), which:
 
-## Database Architecture
+1. Creates both databases if they don't exist, creates all tables of the models imported so far, and seeds
+   users and settings. A new database starts at version 0 on both counters.
+2. Runs the framework upgrades, then your app's upgrades, each from the stored version up to the required one.
+3. Writes a `START` row to the `audit` table.
 
-Soseki maintains two separate SQLAlchemy databases:
+Things to know about the runner:
 
-1. **App Database** (`appdb`): User data, settings, application models
-2. **Log Database** (`logdb`): Request/response logs, access records
+- **Functions are picked by position.** `get_upgrade_functions()` returns a list, and the function at index
+  `N - 1` upgrades to version `N`. Never reorder or remove entries.
+- **The current version's function runs again** on every upgrade pass, so every function must check the stored
+  version before changing anything.
+- **Failures don't stop startup.** An exception is logged as `IMP DB Upgrade failed ...` (app) or
+  `SSK DB Upgrade failed ...` (framework), and the app keeps starting. If a later function succeeds, its
+  version is recorded and the failed one is never retried. Check the log after every upgrade.
+- **A database that is ahead stops the app.** If a stored version is higher than the required one, Soseki
+  writes a `NOK` `START` audit row and exits. Running older code against an upgraded database therefore
+  doesn't work; see [Rolling back](#rolling-back).
+- **A fresh database runs every upgrade function** from version 1, after the tables have been created.
+  Write functions so they also work when their table or column already exists.
 
-Each database can be upgraded independently.
+## For app developers
 
-## Step-by-Step: Adding a New Database Table
+### Adding a table
 
-### Step 1: Create the Model
+1. Create the model in `app/models/`:
 
-Create your new SQLAlchemy model in `ssk/models/`.
+   ```python
+   # app/models/task.py
+   from ssk.db import func_db
 
-**Example:** Adding a new `Task` model
 
-**File:** `ssk/models/task.py`
+   class Task(func_db.Model):
+       __tablename__ = 'task'
 
-```python
-#
-# Copyright (c) 2025 Your Name
-# SPDX-License-Identifier: MIT
-#
+       id = func_db.Column(func_db.Integer, primary_key=True)
+       title = func_db.Column(func_db.String(200), nullable=False)
+       done = func_db.Column(func_db.Boolean, default=False)
+       user_id = func_db.Column(func_db.Integer, func_db.ForeignKey('user.id', ondelete='CASCADE'))
+       created = func_db.Column(func_db.DateTime(timezone=True),
+                                server_default=func_db.func.current_timestamp())
+   ```
 
-from datetime import datetime
-from ssk.db import db
+   Tables in the main database don't need a `__bind_key__`. For a table in the log database, add
+   `__bind_key__ = 'logdb'`.
 
-class Task(db.Model):
-    """Model for user tasks/to-dos."""
-    
-    __tablename__ = 'tasks'
-    __bind_key__ = 'appdb'  # or 'logdb' for log database
-    
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    title = db.Column(db.String(200), nullable=False)
-    description = db.Column(db.Text)
-    status = db.Column(db.String(20), default='pending')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    completed_at = db.Column(db.DateTime, nullable=True)
-    
-    # Relationship
-    user = db.relationship('User', backref='tasks')
-    
-    def __repr__(self):
-        return f'<Task {self.id}: {self.title}>'
-```
+2. Add the upgrade function to `app/db_upgrader.py` and append it to the list:
 
-**Key Points:**
-- Use `__bind_key__` to specify which database (`appdb` or `logdb`)
-- Define primary keys, foreign keys, and relationships
-- Add default values where appropriate
-- Include docstrings and copyright headers
+   ```python
+   from flask import current_app
+   from ssk.db import get_db, get_version, set_version
 
-### Step 2: Import the Model
 
-Import your new model in `ssk/db.py` so it's registered with SQLAlchemy.
+   class DbUpgrader:
+       @staticmethod
+       def ver1():
+           ...
 
-**File:** `ssk/db.py`
+       @staticmethod
+       def ver2():
+           my_version = 2
+           current_app.logger.info("upgrading to {}".format(my_version))
 
-```python
-# Add to imports section
-from ssk.models.task import Task  # Add this line
-from ssk.models.user import User, Role, Subs, UserSubs, Transaction
-from ssk.models.setting import Setting
-from ssk.models.notes import Notes
-# ... other imports
-```
+           if get_version().db_version < my_version:
+               from app.models.task import Task  # noqa: F401  registers the model
+               get_db().create_all()             # creates missing tables only
 
-This ensures the model is loaded when the database initializes.
+               set_version(my_version)
 
-### Step 3: Increment the Model Version
+       @staticmethod
+       def get_upgrade_functions():
+           return [DbUpgrader.ver1, DbUpgrader.ver2]
+   ```
 
-Update the model version number in `ssk/ssk_consts.py`.
+   `create_all()` only creates tables that don't exist yet, so this is safe on both new and existing databases.
 
-**File:** `ssk/ssk_consts.py`
+3. Raise the required version in every config profile (`app/cfg/lite.yaml`, `app/cfg/tst.yaml` and production):
 
-```python
-SSK_VER = '0.8.6'
-SSK_NAME = 'soseki'
-SSK_MODEL_VERSION = 9  # Increment from 8 to 9
+   ```yaml
+     DB_MODEL_VERSION:
+       int: 2
+   ```
 
-SSK_ADMIN_GROUP = 'root'
-```
+4. Restart the app. The log shows `IMP DB 1 < 2 Upgrading` followed by `upgrading to 2`.
 
-This indicates the database schema has changed.
+### Adding a column
 
-### Step 4: Create Migration Function
-
-Add a new migration function to `ssk/ssk_upgrader.py`.
-
-**File:** `ssk/ssk_upgrader.py`
+Add the column to the model, then alter the table in the next `verN`. Check first whether the column is there:
+on a new database `create_all()` already creates it from the model.
 
 ```python
 @staticmethod
-def ver9():
-    my_version = 9
-    current_app.logger.info(SSKUpgrader.UPGRADING_MESG.format(my_version))
-    
-    my_db_version = get_version()
-    
-    if my_db_version.ssk_version < my_version and my_version not in SSKUpgrader._to_skip:
-        # Import the new model
-        from ssk.models.task import Task
-        
-        # Create the new table
-        get_db().create_all()
-        
-        current_app.logger.info("Created tasks table")
-    
-    set_ssk_version(my_version)
+def ver3():
+    my_version = 3
+    current_app.logger.info("upgrading to {}".format(my_version))
+
+    if get_version().db_version < my_version:
+        from sqlalchemy import inspect, text
+
+        my_engine = get_db().engine
+        my_columns = [my_col["name"] for my_col in inspect(my_engine).get_columns("task")]
+        if "priority" not in my_columns:
+            with my_engine.begin() as my_conn:
+                my_conn.execute(text("ALTER TABLE task ADD COLUMN priority INTEGER DEFAULT 0"))
+
+        set_version(my_version)
 ```
 
-**For log database tables**, use the log database engine:
+- Use `engine.begin()` and `text()`. `engine.execute()` was removed in SQLAlchemy 2.0.
+- For a table in the log database, use `get_db().engines['logdb']` instead of `get_db().engine`.
+- SQLite can't change or drop columns with `ALTER TABLE`; you have to create a new table, copy the data over
+  and rename it.
+
+### Migrating data
+
+Use the ORM session inside the same guard, and commit before calling `set_version`:
 
 ```python
-@staticmethod
-def ver9():
-    my_version = 9
-    current_app.logger.info(SSKUpgrader.UPGRADING_MESG.format(my_version))
-    
-    my_db_version = get_version()
-    
-    if my_db_version.ssk_version < my_version and my_version not in SSKUpgrader._to_skip:
-        from ssk.models.log_model import LogModel
-        
-        # For log database, use the logdb engine
-        my_engine = create_engine(current_app.config['SQLALCHEMY_BINDS']['logdb'])
-        get_db().create_all(bind_key='logdb')
-        
-        current_app.logger.info("Created log_model table in log database")
-    
-    set_ssk_version(my_version)
+if get_version().db_version < my_version:
+    from app.models.task import Task
+
+    for my_task in Task.query.filter(Task.title.is_(None)).all():
+        my_task.title = "untitled"
+    get_db().session.commit()
+
+    set_version(my_version)
 ```
 
-### Step 5: Register Migration Function
+## For framework maintainers
 
-Add your new migration function to the list in `get_upgrade_functions()`.
+Framework tables live in `ssk/models/` and use the `ssk_version` counter:
 
-**File:** `ssk/ssk_upgrader.py`
+1. Add or change the model in `ssk/models/`.
+2. Import it in both `db_clean()` and `db_create()` in `ssk/db.py`, so new databases get it straight from
+   `create_all()`.
+3. Add `verN` to `SSKUpgrader` in `ssk/ssk_upgrader.py`, guarded by `get_version().ssk_version < N`, ending
+   with `set_ssk_version(N)`. Append it to `get_upgrade_functions()`.
+4. Add `N` to the skip list in `ver1` when the change is already covered by `db_create()` / `db_init()` on a
+   new database. `ver1` only runs on a new database (version 0) and appends to `SSKUpgrader._to_skip` the
+   versions that would otherwise repeat work, for example an `ALTER TABLE ADD COLUMN` on a column `create_all()`
+   just created. Every `verN` checks `N not in SSKUpgrader._to_skip`.
+5. Bump `SSK_MODEL_VERSION` in `ssk/ssk_consts.py`.
 
-```python
-@staticmethod
-def get_upgrade_functions():
-    my_retval = [
-        SSKUpgrader.ver1, 
-        SSKUpgrader.ver2, 
-        SSKUpgrader.ver3, 
-        SSKUpgrader.ver4, 
-        SSKUpgrader.ver5,
-        SSKUpgrader.ver6, 
-        SSKUpgrader.ver7, 
-        SSKUpgrader.ver8,
-        SSKUpgrader.ver9  # Add your new version here
-    ]
-    
-    return my_retval
-```
+## Testing an upgrade
 
-**IMPORTANT**: The order must match the version numbers sequentially.
-
-### Step 6: Test the Migration
-
-#### Option A: Test with Fresh Database
+### Against a fresh database
 
 ```bash
-# Activate virtual environment
-source venv/bin/activate
-
-# Set test environment
-export FLASK_ENV='test'
-
-# Clean existing database
-flask clean-db
-
-# Create fresh database (will run all migrations)
-flask setup-db
-
-# Verify tables created
-flask shell
->>> from ssk.models.task import Task
->>> Task.query.all()
-[]
->>> exit()
+export FLASK_ENV=lite
+flask clean-db   # drops the tables
+flask run        # the next start recreates the tables, seeds data and runs every upgrade
 ```
 
-#### Option B: Test with Existing Database
+Any `flask` command starts the app, so the database is rebuilt as soon as you run one. Don't run
+`flask setup-db` on a database the app has already set up: it seeds the users again and fails on the
+duplicate usernames.
+
+### Against an existing database
+
+Back up the database, start the app, and check the log (`log/web.log` with the default `LOG_DIR`):
+
+```
+INFO in db: IMP DB 1 < 2 Upgrading
+INFO in db: Upgrading IMP DB to 2
+INFO in db_upgrader: upgrading to 2
+```
+
+Then search the log for `Upgrade failed`.
+
+Relative SQLite paths are resolved against the Flask instance folder. For the blanco app that is `ins/`,
+so `sqlite:///soseki_lite.sqlite` ends up at `ins/soseki_lite.sqlite`:
 
 ```bash
-# Activate virtual environment
-source venv/bin/activate
-
-# Set environment
-export FLASK_ENV='lite'  # or your test environment
-
-# Start the app (migrations run automatically)
-flask run
+sqlite3 ins/soseki_lite.sqlite '.schema task'
+sqlite3 ins/soseki_lite.sqlite 'select * from version order by id desc limit 1'
 ```
 
-Check the logs for migration messages:
+### Unit test
 
-```
-INFO in ssk_upgrader [ssk/ssk_upgrader.py:105]:
-upgrading to 9
-INFO in ssk_upgrader [ssk/ssk_upgrader.py:115]:
-Created tasks table
-```
-
-### Step 7: Verify the Migration
-
-Connect to the database and verify the table was created:
-
-```bash
-# For SQLite databases
-sqlite3 soseki_lite.sqlite
-
-# View tables
-.tables
-
-# Describe the new table
-.schema tasks
-
-# Exit
-.quit
-```
-
-Or use Flask shell:
-
-```bash
-flask shell
->>> from ssk.db import get_db
->>> from sqlalchemy import inspect
->>> inspector = inspect(get_db().engine)
->>> inspector.get_table_names()
-['tasks', 'user', 'setting', 'notes', ...]
->>> inspector.get_columns('tasks')
-[{'name': 'id', 'type': INTEGER(), ...}, ...]
->>> exit()
-```
-
-## Step-by-Step: Modifying an Existing Table
-
-### Adding a Column to Existing Table
-
-**Example:** Adding `priority` column to existing `tasks` table
-
-#### Step 1: Increment Model Version
-
-```python
-# ssk/ssk_consts.py
-SSK_MODEL_VERSION = 10  # Increment
-```
-
-#### Step 2: Update the Model
-
-```python
-# ssk/models/task.py
-class Task(db.Model):
-    # ... existing fields ...
-    priority = db.Column(db.String(10), default='medium')  # Add new field
-```
-
-#### Step 3: Create Migration with ALTER TABLE
-
-```python
-# ssk/ssk_upgrader.py
-
-@staticmethod
-def ver10():
-    my_version = 10
-    current_app.logger.info(SSKUpgrader.UPGRADING_MESG.format(my_version))
-    
-    my_db_version = get_version()
-    
-    if my_db_version.ssk_version < my_version and my_version not in SSKUpgrader._to_skip:
-        # Add column to existing table
-        get_db().engine.execute(
-            "ALTER TABLE tasks ADD COLUMN priority VARCHAR(10) DEFAULT 'medium'"
-        )
-        
-        current_app.logger.info("Added priority column to tasks table")
-    
-    set_ssk_version(my_version)
-```
-
-**For PostgreSQL compatibility**, use text() wrapper:
-
-```python
-from sqlalchemy import text
-
-get_db().engine.execute(
-    text("ALTER TABLE tasks ADD COLUMN priority VARCHAR(10) DEFAULT 'medium'")
-)
-```
-
-#### Step 4: Register and Test
-
-Follow steps 5-7 from "Adding a New Table" section.
-
-## Migration Patterns
-
-### Pattern 1: Simple Table Creation
-
-Use `create_all()` for new tables:
-
-```python
-@staticmethod
-def ver9():
-    my_version = 9
-    current_app.logger.info(SSKUpgrader.UPGRADING_MESG.format(my_version))
-    
-    my_db_version = get_version()
-    
-    if my_db_version.ssk_version < my_version and my_version not in SSKUpgrader._to_skip:
-        from ssk.models.new_model import NewModel
-        get_db().create_all()
-    
-    set_ssk_version(my_version)
-```
-
-### Pattern 2: Adding Columns with ALTER TABLE
-
-Use raw SQL for column additions:
-
-```python
-@staticmethod
-def ver10():
-    my_version = 10
-    current_app.logger.info(SSKUpgrader.UPGRADING_MESG.format(my_version))
-    
-    my_db_version = get_version()
-    
-    if my_db_version.ssk_version < my_version and my_version not in SSKUpgrader._to_skip:
-        get_db().engine.execute('ALTER TABLE notes ADD COLUMN category VARCHAR(100)')
-    
-    set_ssk_version(my_version)
-```
-
-### Pattern 3: Data Migration
-
-Migrate or populate data during upgrade:
-
-```python
-@staticmethod
-def ver11():
-    my_version = 11
-    current_app.logger.info(SSKUpgrader.UPGRADING_MESG.format(my_version))
-    
-    my_db_version = get_version()
-    
-    if my_db_version.ssk_version < my_version and my_version not in SSKUpgrader._to_skip:
-        # Create default settings for all users
-        from ssk.models.user import User
-        from ssk.models.setting import Setting
-        
-        users = User.query.all()
-        for user in users:
-            default_setting = Setting()
-            default_setting.key = "THEME"
-            default_setting.value = "light"
-            user.user_settings.append(default_setting)
-        
-        get_db().session.commit()
-        current_app.logger.info("Added default theme settings for all users")
-    
-    set_ssk_version(my_version)
-```
-
-### Pattern 4: Log Database Modifications
-
-Modify the separate log database:
-
-```python
-@staticmethod
-def ver12():
-    my_version = 12
-    current_app.logger.info(SSKUpgrader.UPGRADING_MESG.format(my_version))
-    
-    my_db_version = get_version()
-    
-    if my_db_version.ssk_version < my_version and my_version not in SSKUpgrader._to_skip:
-        # Get log database engine
-        my_engine = create_engine(current_app.config['SQLALCHEMY_BINDS']['logdb'])
-        
-        # Alter log database table
-        my_engine.execute('ALTER TABLE access ADD COLUMN response_time INTEGER')
-        
-        current_app.logger.info("Added response_time to access log table")
-    
-    set_ssk_version(my_version)
-```
-
-## The Skip List
-
-When creating a brand new database with `ver1()`, the skip list prevents running migrations that are already included in the initial schema.
-
-```python
-@staticmethod
-def ver1():
-    my_version = 1
-    current_app.logger.info(SSKUpgrader.UPGRADING_MESG.format(my_version))
-    
-    # These migrations are already in the initial schema
-    SSKUpgrader._to_skip.append(2)
-    SSKUpgrader._to_skip.append(3)
-    # ...
-    
-    set_ssk_version(my_version)
-```
-
-**When to update the skip list:**
-- When creating a new database from scratch should skip intermediate migrations
-- Typically only modified during major version bumps
-- Most incremental changes don't need skip list updates
-
-## Testing Your Migration
-
-### Unit Test Example
-
-Create tests in `tests/test_migrations.py`:
-
-```python
-import pytest
-from ssk import create_app, db
-from ssk.models.task import Task
-
-def test_task_table_exists(app):
-    """Test that tasks table exists after migration."""
-    with app.app_context():
-        from sqlalchemy import inspect
-        inspector = inspect(db.engine)
-        assert 'tasks' in inspector.get_table_names()
-
-def test_task_columns(app):
-    """Test that tasks table has expected columns."""
-    with app.app_context():
-        from sqlalchemy import inspect
-        inspector = inspect(db.engine)
-        columns = {col['name'] for col in inspector.get_columns('tasks')}
-        
-        assert 'id' in columns
-        assert 'title' in columns
-        assert 'status' in columns
-        assert 'created_at' in columns
-
-def test_create_task(app):
-    """Test that we can create a task."""
-    with app.app_context():
-        task = Task()
-        task.title = "Test Task"
-        task.description = "Test description"
-        
-        db.session.add(task)
-        db.session.commit()
-        
-        assert task.id is not None
-        assert task.status == 'pending'
-```
-
-Run tests:
-
-```bash
-source venv/bin/activate
-pytest tests/test_migrations.py
-```
-
-### Manual Testing Checklist
-
-- [ ] Fresh database creation works (`flask setup-db`)
-- [ ] Existing database upgrades cleanly
-- [ ] New table appears in schema
-- [ ] Can insert/query data
-- [ ] Foreign keys work correctly
-- [ ] Default values are set
-- [ ] Rollback doesn't break (if implemented)
-- [ ] Logs show migration messages
-
-## Troubleshooting
-
-### Migration Doesn't Run
-
-**Symptoms:** Table not created, no log messages
-
-**Causes:**
-1. Database version already higher than migration version
-2. Migration in skip list
-3. Model not imported
-
-**Solutions:**
-```bash
-# Check current database version
-flask shell
->>> from ssk.db import get_version
->>> get_version().ssk_version
-8
-
-# If version is already 9+, migration won't run
-# Reset database or manually set version lower
-```
-
-### Table Already Exists Error
-
-**Symptoms:** SQLAlchemy raises "table already exists" error
-
-**Cause:** Running `create_all()` when table exists
-
-**Solution:** Check if table exists before creating:
+The `app` fixture in `tests/unittests/conftest.py` builds a fresh database. Call your function directly
+and inspect the result:
 
 ```python
 from sqlalchemy import inspect
+from ssk.db import get_db
 
-inspector = inspect(get_db().engine)
-if 'tasks' not in inspector.get_table_names():
-    get_db().create_all()
+
+def test_ver3_adds_priority(app):
+    with app.app_context():
+        from app.db_upgrader import DbUpgrader
+        DbUpgrader.ver2()
+        DbUpgrader.ver3()
+
+        my_columns = [c["name"] for c in inspect(get_db().engine).get_columns("task")]
+        assert "priority" in my_columns
 ```
 
-### Foreign Key Constraint Failed
+## Troubleshooting
 
-**Symptoms:** Cannot insert data, foreign key errors
+**The upgrade didn't run.**
+- Check that `DB_MODEL_VERSION` was raised in the profile the app actually loads (`FLASK_ENV`, or `SSK_CONFIG`).
+- Check that the function was appended to `get_upgrade_functions()` at the right position (index `N - 1`).
+- Search the log for `Upgrade failed`.
+- Check the stored versions: `select * from version order by id desc limit 1`.
 
-**Cause:** Referenced table/column doesn't exist
+**The app exits right after starting.**
+The stored version is higher than the code's required version. Look for `DB Version is ahead of Required
+Version` in the log and a `NOK` row in the `audit` table.
 
-**Solutions:**
-- Ensure referenced tables exist first
-- Check foreign key column names match
-- Verify `__bind_key__` matches for related tables
+**`duplicate column name` or `table already exists`.**
+The function doesn't check whether its change is already there. Add the check described in
+[Adding a column](#adding-a-column).
 
-### Column Type Mismatch
+## Deploying
 
-**Symptoms:** Data truncation, type errors
+1. Back up both databases.
+2. Deploy the code and the config with the raised `DB_MODEL_VERSION`.
+3. Restart the app. Upgrades run during startup.
+4. Check the log for `Upgrade failed` and the `version` table for the new number.
 
-**Cause:** Model definition doesn't match database column
+### Rolling back
 
-**Solution:** Use ALTER TABLE to modify column type:
+Because the app refuses to run against a database that's ahead of it, rolling back the code means rolling
+back the database too:
 
-```python
-# SQLite doesn't support ALTER COLUMN, need to recreate table
-# PostgreSQL/MySQL support ALTER COLUMN
-get_db().engine.execute(
-    'ALTER TABLE tasks ALTER COLUMN priority TYPE VARCHAR(20)'
-)
-```
-
-## Best Practices
-
-### Version Management
-
-✅ **Do:**
-- Increment version by 1 for each migration
-- Never reuse version numbers
-- Keep migrations small and focused
-- Add descriptive log messages
-
-❌ **Don't:**
-- Skip version numbers
-- Combine unrelated changes in one migration
-- Modify existing migrations after release
-
-### Migration Safety
-
-✅ **Do:**
-- Backup database before testing migrations
-- Test on non-production data first
-- Use transactions where possible
-- Log all migration steps
-
-❌ **Don't:**
-- Run destructive migrations without backups
-- Assume data exists (check first)
-- Delete columns without deprecation period
-
-### Code Organization
-
-✅ **Do:**
-- Keep one model per file
-- Group related models in same directory
-- Import models in `db.py`
-- Document complex migrations
-
-❌ **Don't:**
-- Put multiple unrelated models in one file
-- Import models only in migration functions
-- Skip docstrings and comments
-
-### Testing
-
-✅ **Do:**
-- Test fresh database creation
-- Test upgrade from previous version
-- Verify data integrity after migration
-- Check foreign key constraints
-
-❌ **Don't:**
-- Test only on your local setup
-- Skip edge cases
-- Forget to test rollback scenarios
-
-## Production Deployment
-
-### Pre-Deployment Checklist
-
-1. **Backup Production Database**
-   ```bash
-   # SQLite
-   cp production.sqlite production.sqlite.backup
-   
-   # PostgreSQL
-   pg_dump mydb > mydb_backup.sql
-   ```
-
-2. **Test Migration Locally**
-   - Copy production database to local
-   - Run migration on copy
-   - Verify data integrity
-
-3. **Document Rollback Plan**
-   - How to restore from backup
-   - Manual SQL to undo changes if needed
-
-4. **Schedule Downtime** (if needed)
-   - Notify users
-   - Plan maintenance window
-
-### Deployment Steps
-
-```bash
-# 1. Pull latest code
-git pull origin main
-
-# 2. Activate environment
-source venv/bin/activate
-
-# 3. Backup database
-cp soseki.sqlite soseki.sqlite.$(date +%Y%m%d_%H%M%S)
-
-# 4. Stop application
-sudo systemctl stop soseki
-
-# 5. Start application (migrations run automatically)
-sudo systemctl start soseki
-
-# 6. Verify migration in logs
-tail -f log/web.log | grep "upgrading to"
-
-# 7. Test application
-curl http://localhost:5000/health
-```
-
-### Rollback Procedure
-
-If migration fails:
-
-```bash
-# 1. Stop application
-sudo systemctl stop soseki
-
-# 2. Restore backup
-cp soseki.sqlite.backup soseki.sqlite
-
-# 3. Revert code
-git checkout previous-version
-
-# 4. Restart application
-sudo systemctl start soseki
-
-# 5. Investigate issue
-tail -f log/web.log
-```
-
-## Example: Complete Migration Workflow
-
-Let's walk through a complete example of adding a `Category` table for organizing notes.
-
-### 1. Create Model
-
-**File:** `ssk/models/category.py`
-
-```python
-#
-# Copyright (c) 2025 Michał Świtała / CodingMinds.io
-# SPDX-License-Identifier: MIT
-#
-
-from ssk.db import db
-
-class Category(db.Model):
-    """Model for note categories."""
-    
-    __tablename__ = 'categories'
-    __bind_key__ = 'appdb'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), unique=True, nullable=False)
-    description = db.Column(db.String(200))
-    color = db.Column(db.String(7), default='#3498db')  # Hex color
-    
-    # Relationship to notes
-    notes = db.relationship('Notes', backref='category', lazy='dynamic')
-    
-    def __repr__(self):
-        return f'<Category {self.name}>'
-```
-
-### 2. Update Notes Model
-
-**File:** `ssk/models/notes.py`
-
-```python
-# Add to existing Notes model
-class Notes(db.Model):
-    # ... existing fields ...
-    category_id = db.Column(db.Integer, db.ForeignKey('categories.id'))
-    # ... rest of model ...
-```
-
-### 3. Import Model
-
-**File:** `ssk/db.py`
-
-```python
-from ssk.models.category import Category
-```
-
-### 4. Increment Version
-
-**File:** `ssk/ssk_consts.py`
-
-```python
-SSK_MODEL_VERSION = 9
-```
-
-### 5. Create Migration
-
-**File:** `ssk/ssk_upgrader.py`
-
-```python
-@staticmethod
-def ver9():
-    my_version = 9
-    current_app.logger.info(SSKUpgrader.UPGRADING_MESG.format(my_version))
-    
-    my_db_version = get_version()
-    
-    if my_db_version.ssk_version < my_version and my_version not in SSKUpgrader._to_skip:
-        # Create categories table
-        from ssk.models.category import Category
-        get_db().create_all()
-        
-        # Add category_id column to notes
-        get_db().engine.execute(
-            'ALTER TABLE notes ADD COLUMN category_id INTEGER REFERENCES categories(id)'
-        )
-        
-        # Create default categories
-        default_categories = [
-            Category(name='Technical', description='Technical articles', color='#3498db'),
-            Category(name='Tutorial', description='How-to guides', color='#2ecc71'),
-            Category(name='Opinion', description='Opinion pieces', color='#e74c3c')
-        ]
-        
-        for cat in default_categories:
-            get_db().session.add(cat)
-        
-        get_db().session.commit()
-        
-        current_app.logger.info("Created categories table and default categories")
-    
-    set_ssk_version(my_version)
-
-@staticmethod
-def get_upgrade_functions():
-    return [
-        SSKUpgrader.ver1, SSKUpgrader.ver2, SSKUpgrader.ver3, 
-        SSKUpgrader.ver4, SSKUpgrader.ver5, SSKUpgrader.ver6, 
-        SSKUpgrader.ver7, SSKUpgrader.ver8, SSKUpgrader.ver9
-    ]
-```
-
-### 6. Test Migration
-
-```bash
-# Activate venv
-source venv/bin/activate
-
-# Clean database
-flask clean-db
-
-# Create fresh database
-flask setup-db
-
-# Verify
-flask shell
->>> from ssk.models.category import Category
->>> Category.query.all()
-[<Category Technical>, <Category Tutorial>, <Category Opinion>]
->>> exit()
-```
-
-### 7. Update Application Code
-
-Now you can use categories in your application:
-
-```python
-# In routes/blueprints
-from ssk.models.category import Category
-
-@app.route('/notes/by-category/<int:category_id>')
-def notes_by_category(category_id):
-    category = Category.query.get_or_404(category_id)
-    notes = category.notes.all()
-    return render_template('notes_list.html', notes=notes, category=category)
-```
-
-## References
-
-- **Main upgrader code**: `ssk/ssk_upgrader.py`
-- **Database management**: `ssk/db.py`
-- **Version constants**: `ssk/ssk_consts.py`
-- **Model examples**: `ssk/models/`
-- **Flask-SQLAlchemy docs**: https://flask-sqlalchemy.palletsprojects.com/
-- **SQLAlchemy migrations**: https://alembic.sqlalchemy.org/
-
-## Support
-
-For issues or questions:
-- Check logs: `log/web.log`
-- Review database: `flask shell` → `from ssk.db import get_version`
-- GitHub Issues: https://github.com/codingminds/soseki/issues
-- Author: Michał Świtała (michal@codingminds.io)
+1. Stop the app.
+2. Restore the database backup taken before the upgrade.
+3. Deploy the previous code and config.
+4. Start the app.

@@ -6,8 +6,7 @@
 from datetime import datetime
 
 from flask import current_app
-from flask_user import user_manager
-from sqlalchemy import create_engine
+from sqlalchemy import inspect, text
 
 from ssk.db import get_db, get_version, set_ssk_version, func_db
 from ssk.globals.setting_parser import SettingParser
@@ -20,6 +19,20 @@ class SSKUpgrader:
     UPGRADING_MESG = "upgrading to {}"
 
     @staticmethod
+    def _add_column(an_engine, a_table, a_column, a_type):
+        """ALTER TABLE ... ADD COLUMN, skipped when the table is missing or already has the column."""
+        my_inspector = inspect(an_engine)
+        if a_table not in my_inspector.get_table_names():
+            current_app.logger.info("table {} not found, {} not added".format(a_table, a_column))
+            return
+
+        if a_column in [my_col["name"] for my_col in my_inspector.get_columns(a_table)]:
+            return
+
+        with an_engine.begin() as my_conn:
+            my_conn.execute(text("ALTER TABLE {} ADD COLUMN {} {}".format(a_table, a_column, a_type)))
+
+    @staticmethod
     def ver1():
         my_version = 1
         current_app.logger.info(SSKUpgrader.UPGRADING_MESG.format(my_version))
@@ -29,6 +42,7 @@ class SSKUpgrader:
         SSKUpgrader._to_skip.append(4)
         SSKUpgrader._to_skip.append(5)
         SSKUpgrader._to_skip.append(6)
+        SSKUpgrader._to_skip.append(7)
         SSKUpgrader._to_skip.append(8)
 
         set_ssk_version(my_version)
@@ -41,8 +55,7 @@ class SSKUpgrader:
         my_db_version = get_version()
 
         if my_db_version.ssk_version < my_version and my_version not in SSKUpgrader._to_skip:
-            my_engine = create_engine(current_app.config['SQLALCHEMY_BINDS']['logdb'])
-            my_engine.execute('alter table access add column response_time INTEGER')
+            SSKUpgrader._add_column(get_db().engines['logdb'], 'access', 'response_time', 'INTEGER')
 
         set_ssk_version(my_version)
 
@@ -54,8 +67,8 @@ class SSKUpgrader:
         my_db_version = get_version()
 
         if my_db_version.ssk_version < my_version and my_version not in SSKUpgrader._to_skip:
-            get_db().engine.execute('alter table notes add column summary VARCHAR(100)')
-            get_db().engine.execute('alter table notes add column category VARCHAR(100)')
+            SSKUpgrader._add_column(get_db().engine, 'notes', 'summary', 'VARCHAR(100)')
+            SSKUpgrader._add_column(get_db().engine, 'notes', 'category', 'VARCHAR(100)')
 
         set_ssk_version(my_version)
 
@@ -67,7 +80,7 @@ class SSKUpgrader:
         my_db_version = get_version()
 
         if my_db_version.ssk_version < my_version and my_version not in SSKUpgrader._to_skip:
-            get_db().engine.execute('alter table notes add column meta VARCHAR(100)')
+            SSKUpgrader._add_column(get_db().engine, 'notes', 'meta', 'VARCHAR(100)')
 
         set_ssk_version(my_version)
 
@@ -106,7 +119,9 @@ class SSKUpgrader:
 
         my_db_version = get_version()
 
-        if my_db_version.ssk_version < my_version and my_version not in SSKUpgrader._to_skip:
+        my_has_sched_on = Setting.query.filter_by(key="SCHED_ON").first() is not None
+        if my_db_version.ssk_version < my_version and my_version not in SSKUpgrader._to_skip \
+                and not my_has_sched_on:
             my_sched_on_setting = Setting()
             my_sched_on_setting.system = True
             my_sched_on_setting.key = "SCHED_ON"
@@ -130,33 +145,43 @@ class SSKUpgrader:
 
         if my_db_version.ssk_version < my_version and my_version not in SSKUpgrader._to_skip:
             # noinspection PyUnresolvedReferences
-            from .models.user import Subs, UserSubs, Transaction
+            from .models.user import Role, Subs, UserSubs, Transaction
+            from ssk.db import truncate_password
             get_db().create_all()
 
-            my_pro_user = User()
-            my_pro_user.username = current_app.config['USER_PRO_NAME']
-            my_pro_user.email = current_app.config['USER_PRO_EMAIL']
-            my_pro_user.first_name = "John"
-            my_pro_user.last_name = "Pro"
-            my_pro_user.email_confirmed_at = datetime.now()
-            from ssk.db import truncate_password
-            my_pro_user.password = user_manager.hash_password(truncate_password(current_app.config['USER_PRO_PASS']))
+            # same users and subscriptions a new database gets in db_init(); safe to run more than once
+            my_pro_user = User.get_by_email(current_app.config['USER_PRO_EMAIL'])
+            if my_pro_user is None:
+                my_pro_user = User()
+                my_pro_user.username = current_app.config['USER_PRO_NAME']
+                my_pro_user.email = current_app.config['USER_PRO_EMAIL']
+                my_pro_user.first_name = "John"
+                my_pro_user.last_name = "Pro"
+                my_pro_user.email_confirmed_at = datetime.now()
+                my_pro_user.password = current_app.user_manager.hash_password(
+                    truncate_password(current_app.config['USER_PRO_PASS']))
+
+                my_user_role = Role.query.filter_by(name=current_app.config['USER_GROUP_NAME']).first()
+                if my_user_role is not None:
+                    my_user_role.users.append(my_pro_user)
+
+                func_db.session.add(my_pro_user)
 
             my_admin_user = User.get_by_email(current_app.config["ADMIN_EMAIL"])
-            my_free_user = User.get_by_email(current_app.config["USER_PRO_EMAIL"])
+            my_free_user = User.get_by_email(current_app.config["USER_FREE_EMAIL"])
 
-            my_free_subs = Subs()
-            my_free_subs.name = current_app.config['FREE_SUB']
-            my_free_subs.users.append(my_free_user)
+            for my_sub_name, my_members in ((current_app.config['FREE_SUB'], [my_free_user]),
+                                            (current_app.config['PRO_SUB'], [my_pro_user, my_admin_user])):
+                my_subs = Subs.query.filter_by(name=my_sub_name).first()
+                if my_subs is None:
+                    my_subs = Subs()
+                    my_subs.name = my_sub_name
+                    func_db.session.add(my_subs)
 
-            my_pro_subs = Subs()
-            my_pro_subs.name = current_app.config['PRO_SUB']
-            my_pro_subs.users.append(my_pro_user)
-            my_pro_subs.users.append(my_admin_user)
+                for my_member in my_members:
+                    if my_member is not None and my_member not in my_subs.users:
+                        my_subs.users.append(my_member)
 
-            func_db.session.add(my_admin_user)
-            func_db.session.add(my_free_user)
-            func_db.session.add(my_pro_user)
             func_db.session.commit()
 
         set_ssk_version(my_version)

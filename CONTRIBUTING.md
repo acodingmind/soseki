@@ -16,13 +16,13 @@ Thank you for your interest in contributing to Soseki! This document provides gu
 
 ## Development Workflow
 
-1. Create a new branch: `git checkout -b feature/your-feature-name`
+1. Create a new branch from `develop`: `git checkout -b feature/your-feature-name develop`
 2. Make your changes
 3. Run tests: `pytest`
 4. Run tests with coverage: `pytest --cov=ssk`
 5. Commit your changes: `git commit -S -m "Description of changes"`
 6. Push to your fork: `git push origin feature/your-feature-name`
-7. Open a Pull Request
+7. Open a Pull Request against `develop`
 
 ## Code Standards
 
@@ -50,10 +50,11 @@ pytest tests/unittests/test_example.py
 ```
 soseki/
 ├── ssk/              # Core framework package
-├── app/              # Example application
-├── tests/            # Test suite
-├── docs/             # Documentation
-└── scripts/          # Utility scripts
+├── app/              # Blanco template app (copied by `soseki init`)
+├── bin/              # Shell scripts (run_app.sh, render_jup.sh)
+├── jup/              # Jupyter notebooks for notes
+├── tests/            # Test suite (unittests/, integration/)
+└── docs/             # Documentation
 ```
 
 ## Reporting Issues

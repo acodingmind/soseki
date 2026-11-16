@@ -7,7 +7,7 @@
 from .. import db
 from ..db import func_db
 from sqlalchemy.orm import relationship, exc
-from flask_user import UserMixin
+from ..auth.mixins import UserMixin
 from ..ssk_consts import SSK_ADMIN_GROUP
 
 

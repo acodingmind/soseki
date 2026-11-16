@@ -15,6 +15,9 @@ from .base_job import BaseJob
 from ... import get_db
 from ...globals.api_gate import ApiGate
 
+# seconds to wait for ROOT_URL before giving up, so a slow site can't hang the job worker
+HEALTH_CHECK_TIMEOUT = 10
+
 
 class HealthCheckJob(BaseJob):
     def __init__(self, an_app, a_args):
@@ -60,7 +63,7 @@ class HealthCheckJob(BaseJob):
                 my_resp_time = -1
                 if my_url != "":
                     my_now = datetime.now()
-                    my_response = requests.get(my_url)
+                    my_response = requests.get(my_url, timeout=HEALTH_CHECK_TIMEOUT)
                     if my_response.status_code == 200:
                         my_resp_time = (datetime.now() - my_now).total_seconds()
                 else:

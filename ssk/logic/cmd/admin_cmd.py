@@ -32,7 +32,7 @@ class AdminCmd(AbstractCmd):
         self.reg_cmd(["g", "group"], GroupCmd())
         self.reg_cmd(["h", "health"], HealthCmd())
         self.reg_cmd(["j", "jobs"], JobCmd())
-        self.reg_cmd(["m", "mai;"], MailCmd())
+        self.reg_cmd(["m", "mail"], MailCmd())
         self.reg_cmd(["p", "passwd"], ChangePasswdCmd())
         self.reg_cmd(["s", "stats"], PageStatCmd())
         self.reg_cmd(["dbst", "dbstats"], DbStatCmd())

@@ -6,7 +6,7 @@
 import pytest
 import uuid
 from datetime import datetime
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, MagicMock
 
 from ssk.globals.job_mgr import JobMgr
 from ssk.logic.jobs.base_job import BaseJob
@@ -785,7 +785,8 @@ class TestDbCleanupJob:
         with app.app_context():
             with patch('flask_login.current_user') as mock_current_user, \
                  patch('ssk.logic.jobs.db_cleanup_job.get_db') as mock_get_db, \
-                 patch('ssk.logic.jobs.db_cleanup_job.now') as mock_now:
+                 patch('ssk.logic.jobs.db_cleanup_job.now') as mock_now, \
+                 patch('ssk.logic.jobs.db_cleanup_job.inspect') as mock_inspect:
                 
                 # Mock current_user properly
                 mock_current_user._get_current_object.return_value = Mock(is_anonymous=False, id=1)
@@ -793,10 +794,13 @@ class TestDbCleanupJob:
                 # Mock current time
                 mock_now.return_value = datetime(2024, 1, 10)
                 
-                # Mock database engine
-                mock_engine = Mock()
-                mock_engine.scalar.side_effect = [100, 0]  # Before: 100, After: 0
-                mock_get_db.return_value.engine = mock_engine
+                # Mock database engine and connection
+                mock_conn = Mock()
+                mock_conn.scalar.side_effect = [100, 0]  # Before: 100, After: 0
+                mock_engine = MagicMock()
+                mock_engine.begin.return_value.__enter__.return_value = mock_conn
+                mock_get_db.return_value.engines = {None: mock_engine}
+                mock_inspect.return_value.get_table_names.return_value = ['test_table']
                 
                 # Mock the app as well
                 mock_app = Mock()
@@ -810,8 +814,8 @@ class TestDbCleanupJob:
                 job.work()
                 
                 # Verify SQL operations
-                assert mock_engine.scalar.call_count == 2
-                mock_engine.execute.assert_called_once()
+                assert mock_conn.scalar.call_count == 2
+                mock_conn.execute.assert_called_once()
                 
                 # Verify audit log
                 job.write_to_audit.assert_called_once()
@@ -822,17 +826,21 @@ class TestDbCleanupJob:
         with app.app_context():
             with patch('flask_login.current_user') as mock_current_user, \
                  patch('ssk.logic.jobs.db_cleanup_job.get_db') as mock_get_db, \
-                 patch('ssk.logic.jobs.db_cleanup_job.now') as mock_now:
+                 patch('ssk.logic.jobs.db_cleanup_job.now') as mock_now, \
+                 patch('ssk.logic.jobs.db_cleanup_job.inspect') as mock_inspect:
                 
                 # Mock current_user properly
                 mock_current_user._get_current_object.return_value = Mock(is_anonymous=False, id=1)
                 
                 mock_now.return_value = datetime(2024, 1, 10)
                 
-                # Mock bound engine
-                mock_engine = Mock()
-                mock_engine.scalar.side_effect = [50, 0]
-                mock_get_db.return_value.get_engine.return_value = mock_engine
+                # Mock bound engine and connection
+                mock_conn = Mock()
+                mock_conn.scalar.side_effect = [50, 0]
+                mock_engine = MagicMock()
+                mock_engine.begin.return_value.__enter__.return_value = mock_conn
+                mock_get_db.return_value.engines = {'bind_key': mock_engine}
+                mock_inspect.return_value.get_table_names.return_value = ['test_table']
                 
                 # Mock the app as well
                 mock_app = Mock()
@@ -846,8 +854,8 @@ class TestDbCleanupJob:
                 job.work()
                 
                 # Verify bound engine was used
-                mock_get_db.return_value.get_engine.assert_called_once_with(bind_key='bind_key')
-                assert mock_engine.scalar.call_count == 2
+                mock_inspect.assert_called_once_with(mock_engine)
+                assert mock_conn.scalar.call_count == 2
     
     def test_db_cleanup_job_insufficient_args(self, app):
         """Test DbCleanupJob work method with insufficient arguments"""

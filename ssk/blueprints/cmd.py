@@ -5,7 +5,7 @@
 
 
 from flask import (Blueprint, request, render_template)
-from flask_user import roles_required
+from ssk.auth import roles_required
 
 from ssk.ssk_consts import SSK_ADMIN_GROUP
 from ssk.blueprints.cmd_handler import CmdHandler
