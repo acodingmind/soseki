@@ -1,5 +1,5 @@
 include README.md
-include LICENCE
+include LICENSE
 include requirements.txt
 recursive-include ssk/templates *
 recursive-include ssk/static *

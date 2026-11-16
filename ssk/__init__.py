@@ -9,7 +9,7 @@ from logging.handlers import RotatingFileHandler
 import yaml
 from blinker import ANY
 from flask.cli import with_appcontext
-from flask import render_template, flash, request
+from flask import render_template, flash, request, abort
 from flask_login import current_user
 from apscheduler.schedulers.background import BackgroundScheduler
 from ssk.utils import set_const
@@ -27,29 +27,8 @@ from flask_login.signals import user_logged_in, user_logged_out
 
 from .lg import get_logic
 
-from .db import get_db, truncate_password
+from .db import get_db
 from datetime import datetime
-
-# Monkey-patch bcrypt.hashpw at the lowest level to handle 72-byte limit
-# This must happen BEFORE passlib tries to use bcrypt
-import bcrypt as _bcrypt_module
-_original_bcrypt_hashpw = _bcrypt_module.hashpw
-def _patched_bcrypt_hashpw(password, salt):
-    """Patched bcrypt.hashpw that truncates passwords to 72 bytes."""
-    if isinstance(password, str):
-        password = password.encode('utf-8')
-    if len(password) > 72:
-        password = password[:72]
-    return _original_bcrypt_hashpw(password, salt)
-_bcrypt_module.hashpw = _patched_bcrypt_hashpw
-
-# Also monkey-patch Flask-User's UserManager.hash_password
-from flask_user import UserManager
-_original_usermanager_hash_password = UserManager.hash_password
-def _patched_hash_password(self, password):
-    """Patched hash_password that truncates passwords to 72 bytes for bcrypt."""
-    return _original_usermanager_hash_password(self, truncate_password(password))
-UserManager.hash_password = _patched_hash_password
 
 from .logic.jobs.db_cleanup_job import DbCleanupJob
 from .logic.jobs.db_stat_job import DbStatJob
@@ -167,6 +146,11 @@ def after_request(response):
 def every_request():
     if current_app.config["LOG_ALL_REQUESTS"]:
         g.start = time.time()
+
+    ip_blacklist = current_app.config.get("IP_BLACKLIST", [])
+    if request.remote_addr in ip_blacklist:
+        current_app.logger.warning("Blocked blacklisted IP: %s", request.remote_addr)
+        abort(403)
 
     my_user = current_user
 
@@ -316,9 +300,9 @@ def init_ssk(an_app, a_bus_logic, a_db_upgrader, a_testing):
 
     from .models.user import User
     from .models.user import UserInvitation
-    from flask_user import UserManager, EmailManager
-    my_app.user_manager = UserManager(my_app, func_db, User, UserInvitationClass=UserInvitation)
-    my_app.user_manager.email_manager = EmailManager(my_app)
+    from .models.user import Role
+    from .auth import UserManager
+    UserManager(my_app, func_db, User, UserInvitationClass=UserInvitation, RoleClass=Role)
     my_app.meta = {"PROFILE": os.getenv("FLASK_ENV", None)}
 
     from .blueprints import home

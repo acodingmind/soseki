@@ -33,15 +33,13 @@ class CmdProcessor:
             my_cmd = a_job_queue.get()
 
             if my_cmd == CmdProcessor.KILL_CMD:
-                raise SystemExit()
+                break
 
             if a_job_mgr.is_queued(my_cmd.get_task_id()):
                 CmdProcessor.log("worker {} processing command {}".format(a_num, my_cmd.get_task_id()))
                 CmdProcessor._cmd_cnt += 1
                 try:
                     a_job_mgr.start_job(my_cmd)
-                except SystemExit:
-                    CmdProcessor.log("worker {} processing command {} stopped".format(a_num, my_cmd.get_task_id()))
                 except Exception as e:
                     CmdProcessor.log("worker {} processing command {} error {}".format(a_num, my_cmd.get_task_id(), e))
 
@@ -65,6 +63,9 @@ class CmdProcessor:
         for my_tmp_idx in range(len(CmdProcessor._workers)):
             CmdProcessor.log("sending kill to worker {}".format(my_tmp_idx))
             CmdProcessor._cmd_queue.put(CmdProcessor.KILL_CMD)
+
+        for my_tmp_worker in CmdProcessor._workers:
+            my_tmp_worker.join()
 
     @staticmethod
     def submit_cmd(a_cmd):

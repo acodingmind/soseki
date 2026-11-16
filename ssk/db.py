@@ -16,19 +16,8 @@ from ssk.globals.setting_parser import SettingParser
 func_db = SQLAlchemy()
 
 
-def truncate_password(password):
-    """Truncate password to 72 bytes for bcrypt compatibility.
-    
-    Bcrypt has a 72-byte limit. This function truncates passwords to 72 bytes
-    to avoid ValueError: password cannot be longer than 72 bytes.
-    
-    Version: 2025-01-12T14:42:00Z
-    """
-    if isinstance(password, str):
-        password_bytes = password.encode('utf-8')
-        if len(password_bytes) > 72:
-            return password_bytes[:72].decode('utf-8', errors='ignore')
-    return password
+# kept here for existing imports; bcrypt's 72-byte limit is handled in ssk.auth
+from .auth.manager import truncate_password  # noqa: E402,F401
 
 
 def get_db():
