@@ -10,7 +10,7 @@ bcrypt==5.0.0
 itsdangerous==2.2.0
 
 # Database
-SQLAlchemy==2.0.57
+SQLAlchemy==2.0.58
 SQLAlchemy-Utils==0.43.0
 PyMySQL==1.2.4
 
