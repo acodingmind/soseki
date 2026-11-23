@@ -37,4 +37,4 @@ requests==2.34.2
 # certifi: GHSA-6q48-6c7w-9gw2 (distrusted emSign ECC Root CA - G3)
 Werkzeug>=3.1.9
 urllib3>=2.8.0
-certifi>=2026.10.18
+certifi>=2026.10.23
